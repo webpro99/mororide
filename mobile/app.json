@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "MoroRide",
+    "slug": "mororide",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/moro_app_icon_square_1024.png",
+    "scheme": "mororide",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/moro_app_icon_512.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#fffaf4"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mororide.app"
+    },
+    "android": {
+      "package": "com.mororide.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/moro_app_icon_512.png",
+        "backgroundColor": "#74001b"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/moro_app_icon_192.png"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font",
+      "expo-notifications",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "enableGooglePay": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MoroRide shares your live location with your rider during an active trip.",
+          "locationWhenInUsePermission": "MoroRide uses your location to match nearby rides and show your position on the map."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}

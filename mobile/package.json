@@ -1,0 +1,43 @@
+{
+  "name": "mororide-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "web:mororide": "expo start --web --port 8083",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~4.0.1",
+    "@expo/vector-icons": "~14.0.4",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/netinfo": "11.4.1",
+    "@stripe/stripe-react-native": "0.38.6",
+    "expo": "~52.0.0",
+    "expo-asset": "~11.0.5",
+    "expo-build-properties": "~0.13.3",
+    "expo-device": "~7.0.3",
+    "expo-font": "~13.0.4",
+    "expo-image-picker": "~16.0.6",
+    "expo-location": "~18.0.10",
+    "expo-notifications": "~0.29.14",
+    "expo-status-bar": "~2.0.0",
+    "laravel-echo": "^2.4.0",
+    "pusher-js": "^8.5.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.9",
+    "react-native-maps": "1.18.0",
+    "react-native-web": "~0.19.13"
+  },
+  "devDependencies": {
+    "@babel/plugin-transform-class-static-block": "^7.29.7",
+    "@types/react": "~18.3.12",
+    "playwright-core": "^1.61.1",
+    "typescript": "^5.3.3"
+  }
+}

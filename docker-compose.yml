@@ -1,0 +1,79 @@
+services:
+  app:
+    build:
+      context: ./backend
+    volumes:
+      - ./backend:/var/www/html
+      # vendor/ lives in a Linux-native named volume, NOT the slow Windows
+      # bind-mount. Reading its thousands of files over the bind-mount made every
+      # request take seconds; on the named volume OPcache warms in milliseconds.
+      - mororide_vendor:/var/www/html/vendor
+    working_dir: /var/www/html
+    # Raw PHP built-in server (not `artisan serve`) so container env overrides
+    # (DB_HOST=postgres / REDIS_HOST=redis) reach HTTP requests. See backend/server.php.
+    command: php -S 0.0.0.0:8000 -t public server.php
+    ports:
+      - "8000:8000"
+    environment:
+      # Only override the hosts that differ on the Docker network. DB_CONNECTION,
+      # DB_DATABASE and credentials come from .env (identical values). Keeping
+      # DB_CONNECTION out of the container env lets phpunit.xml force sqlite for
+      # tests, so `php artisan test` cannot touch the dev Postgres database.
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      BROADCAST_DRIVER: reverb
+      REVERB_APP_ID: mororide-local
+      REVERB_APP_KEY: mororide-local-key
+      REVERB_APP_SECRET: mororide-local-secret
+      REVERB_HOST: reverb
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+    depends_on:
+      - postgres
+      - redis
+
+  reverb:
+    build:
+      context: ./backend
+    volumes:
+      - ./backend:/var/www/html
+      - mororide_vendor:/var/www/html/vendor
+    working_dir: /var/www/html
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      REVERB_APP_ID: mororide-local
+      REVERB_APP_KEY: mororide-local-key
+      REVERB_APP_SECRET: mororide-local-secret
+      REVERB_HOST: reverb
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+      REVERB_SERVER_HOST: 0.0.0.0
+      REVERB_SERVER_PORT: 8080
+      REVERB_ALLOWED_ORIGINS: "*"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mororide
+      POSTGRES_USER: mororide
+      POSTGRES_PASSWORD: mororide
+    ports:
+      - "5432:5432"
+    volumes:
+      - mororide_postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  mororide_postgres:
+  mororide_vendor:
