@@ -153,6 +153,10 @@
         .fare-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
         .fare-form .wide { grid-column:1 / -1; }
         .fare-preview { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:12px; }
+        .fare-status { align-items:center; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px; }
+        .fare-status-dot { border-radius:999px; height:12px; width:12px; }
+        .fare-status-dot.on { background:#2f8f5b; box-shadow:0 0 0 5px #dff3e8; }
+        .fare-status-dot.off { background:#a6a096; box-shadow:0 0 0 5px #eee8df; }
         @media (max-width: 900px) { .fare-form { grid-template-columns:1fr; } .fare-form .wide { grid-column:auto; } }
         .msg { padding:10px 12px; border-radius:12px; background:#f5f2ec; margin-bottom:8px; }
         .msg .meta { font-size:11px; color:var(--muted); margin-bottom:3px; }
@@ -501,26 +505,40 @@
     render.fares = async () => {
         loading();
         const p = await api('GET', '/api/admin/fare-config');
-        const active = p.data.active || {};
+        const active = p.data.active || null;
         const history = p.data.history || [];
-        const value = (key, fallback='') => esc(active[key] ?? fallback);
+        const draft = active || history[0] || {};
+        const value = (key, fallback='') => esc(draft[key] ?? fallback);
         const rows = history.map(f => `
             <tr>
               <td>${f.id}</td><td>${money(f.base)}</td><td>${money(f.per_km)}</td><td>${money(f.per_min)}</td>
               <td>${money(f.floor)}</td><td>${Number(f.platform_fee_pct || 0) * 100}%</td>
               <td>${statusBadge(f.is_active ? 'active' : 'inactive')}</td><td>${dt(f.active_from || f.created_at)}</td>
+              <td class="row-actions">
+                ${f.is_active
+                    ? `<button class="btn sm danger" onclick="deactivateFareConfig(${f.id})">Deactivate</button>`
+                    : `<button class="btn sm ok" onclick="activateFareConfig(${f.id})">Activate</button>`}
+              </td>
             </tr>`).join('');
+        const pricingActions = active
+            ? `<button class="btn danger sm" onclick="deactivateFareConfig(${active.id})">Deactivate pricing</button>`
+            : (history[0] ? `<button class="btn ok sm" onclick="activateFareConfig(${history[0].id})">Activate latest pricing</button>` : '');
         view(`
             <div class="stat-grid">
-              <div class="stat"><div class="k">Charge per KM</div><div class="v sm">${money(active.per_km)} ${esc(active.currency || 'MAD')}</div></div>
-              <div class="stat"><div class="k">Base fare</div><div class="v sm">${money(active.base)} ${esc(active.currency || 'MAD')}</div></div>
-              <div class="stat"><div class="k">Minimum fare</div><div class="v sm">${money(active.floor)} ${esc(active.currency || 'MAD')}</div></div>
-              <div class="stat"><div class="k">Platform fee</div><div class="v sm">${money(Number(active.platform_fee_pct || 0) * 100)}%</div></div>
+              <div class="stat"><div class="k">Pricing status</div><div class="v sm">${active ? 'Active' : 'Inactive'}</div></div>
+              <div class="stat"><div class="k">Charge per KM</div><div class="v sm">${money(active?.per_km)} ${esc(active?.currency || draft.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Base fare</div><div class="v sm">${money(active?.base)} ${esc(active?.currency || draft.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Platform fee</div><div class="v sm">${money(Number(active?.platform_fee_pct || 0) * 100)}%</div></div>
             </div>
 
             <div class="panel">
-              <div class="panel-head"><h2>Suggested rider fare formula</h2><button class="btn primary sm" onclick="saveFareConfig()">Save new pricing</button></div>
+              <div class="panel-head"><h2>Suggested rider fare formula</h2><div class="row-actions">${pricingActions}<button class="btn primary sm" onclick="saveFareConfig()">Save & activate new pricing</button></div></div>
               <div class="pad">
+                <div class="fare-status">
+                  <span class="fare-status-dot ${active ? 'on' : 'off'}"></span>
+                  <b>${active ? 'Fare pricing is active.' : 'Fare pricing is inactive.'}</b>
+                  <span class="muted">${active ? 'Riders will see the suggested price.' : 'Riders will not see auto suggested prices; they can still name their own price.'}</span>
+                </div>
                 <div class="notice info"><b>How it works:</b> the rider sees this as the suggested fare after choosing pickup and drop-off. The rider can still change the offered price, and drivers can still accept that rider price or send a counter offer.</div>
                 <div class="fare-form" id="fareForm">
                   <div class="field"><label>Currency</label><input id="fareCurrency" type="text" maxlength="3" value="${value('currency','MAD')}"></div>
@@ -529,7 +547,7 @@
                   <div class="field"><label>Charge per minute</label><input id="farePerMin" type="number" min="0" step="0.01" value="${value('per_min',0)}" oninput="updateFarePreview()"></div>
                   <div class="field"><label>Extra passenger charge</label><input id="farePerPax" type="number" min="0" step="0.01" value="${value('per_pax',0)}" oninput="updateFarePreview()"></div>
                   <div class="field"><label>Minimum fare floor</label><input id="fareFloor" type="number" min="0" step="0.01" value="${value('floor',0)}" oninput="updateFarePreview()"></div>
-                  <div class="field"><label>Platform fee %</label><input id="farePlatformPct" type="number" min="0" max="100" step="0.01" value="${money(Number(active.platform_fee_pct || 0) * 100)}"></div>
+                  <div class="field"><label>Platform fee %</label><input id="farePlatformPct" type="number" min="0" max="100" step="0.01" value="${money(Number(draft.platform_fee_pct || 0) * 100)}"></div>
                   <div class="field"><label>Sedan multiplier</label><input id="fareSedan" type="number" min="0.1" step="0.01" value="${value('sedan_multiplier',1)}" oninput="updateFarePreview()"></div>
                   <div class="field"><label>Minivan multiplier</label><input id="fareMinivan" type="number" min="0.1" step="0.01" value="${value('minivan_multiplier',1.25)}"></div>
                   <div class="field"><label>SUV multiplier</label><input id="fareSuv" type="number" min="0.1" step="0.01" value="${value('suv_multiplier',1.35)}"></div>
@@ -545,8 +563,8 @@
             </div>
 
             <div class="panel"><div class="panel-head"><h2>Pricing history</h2></div>
-              <div class="table-wrap"><table><thead><tr><th>ID</th><th>Base</th><th>Per KM</th><th>Per min</th><th>Floor</th><th>Fee</th><th>Status</th><th>Active from</th></tr></thead>
-              <tbody>${rows || '<tr><td colspan="8" class="empty">No fare config history.</td></tr>'}</tbody></table></div></div>`);
+              <div class="table-wrap"><table><thead><tr><th>ID</th><th>Base</th><th>Per KM</th><th>Per min</th><th>Floor</th><th>Fee</th><th>Status</th><th>Active from</th><th>Action</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="9" class="empty">No fare config history.</td></tr>'}</tbody></table></div></div>`);
         updateFarePreview();
     };
     window.fareNum = (id) => Number(document.getElementById(id)?.value || 0);
@@ -572,6 +590,15 @@
             luxury_multiplier: fareNum('fareLuxury') || 2,
         };
         try { await api('POST', '/api/admin/fare-config', body); toast('Fare pricing saved'); await render.fares(); }
+        catch(e){ toast(e.message,'err'); }
+    };
+    window.activateFareConfig = async (id) => {
+        try { await api('POST', `/api/admin/fare-config/${id}/activate`); toast('Fare pricing activated'); await render.fares(); }
+        catch(e){ toast(e.message,'err'); }
+    };
+    window.deactivateFareConfig = async (id) => {
+        if (!confirm('Deactivate fare pricing? Riders will stop seeing automatic suggested prices.')) return;
+        try { await api('POST', `/api/admin/fare-config/${id}/deactivate`); toast('Fare pricing deactivated'); await render.fares(); }
         catch(e){ toast(e.message,'err'); }
     };
 

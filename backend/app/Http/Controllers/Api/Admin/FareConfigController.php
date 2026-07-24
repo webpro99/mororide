@@ -6,14 +6,22 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Admin\UpdateFareConfigRequest;
 use App\Models\FareConfig;
 use App\Services\AuditLogService;
-use App\Services\FareService;
 
 class FareConfigController extends ApiController
 {
-    public function show(FareService $fareService)
+    public function show()
     {
         return $this->ok([
-            'active' => $fareService->getActiveConfig(),
+            'active' => FareConfig::query()
+                ->where('is_active', true)
+                ->where(function ($query) {
+                    $query->whereNull('active_from')->orWhere('active_from', '<=', now());
+                })
+                ->where(function ($query) {
+                    $query->whereNull('active_to')->orWhere('active_to', '>=', now());
+                })
+                ->latest('id')
+                ->first(),
             'history' => FareConfig::latest()->limit(20)->get(),
         ]);
     }
@@ -34,5 +42,37 @@ class FareConfigController extends ApiController
         $auditLogService->record($request->user(), 'fare_config_changed', $config, [], $data);
 
         return $this->ok($config, 'Fare config saved', 201);
+    }
+
+    public function activate(FareConfig $fareConfig, AuditLogService $auditLogService)
+    {
+        FareConfig::where('is_active', true)->whereKeyNot($fareConfig->id)->update([
+            'is_active' => false,
+            'active_to' => now(),
+        ]);
+
+        $before = $fareConfig->only(['is_active', 'active_from', 'active_to']);
+        $fareConfig->update([
+            'is_active' => true,
+            'active_from' => now(),
+            'active_to' => null,
+        ]);
+
+        $auditLogService->record(request()->user(), 'fare_config_activated', $fareConfig, $before, $fareConfig->only(['is_active', 'active_from', 'active_to']));
+
+        return $this->ok($fareConfig->fresh(), 'Fare pricing activated');
+    }
+
+    public function deactivate(FareConfig $fareConfig, AuditLogService $auditLogService)
+    {
+        $before = $fareConfig->only(['is_active', 'active_to']);
+        $fareConfig->update([
+            'is_active' => false,
+            'active_to' => now(),
+        ]);
+
+        $auditLogService->record(request()->user(), 'fare_config_deactivated', $fareConfig, $before, $fareConfig->only(['is_active', 'active_to']));
+
+        return $this->ok($fareConfig->fresh(), 'Fare pricing deactivated');
     }
 }

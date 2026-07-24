@@ -760,6 +760,10 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       setNotice('Pickup and drop-off must be different locations.');
       return;
     }
+    if (!Number(price)) {
+      setNotice('Enter your offered price or ask admin to activate fare pricing.');
+      return;
+    }
 
     setLoading(true);
 

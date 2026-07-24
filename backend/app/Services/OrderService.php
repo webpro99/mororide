@@ -260,12 +260,20 @@ class OrderService
     private function createOrder(User $requester, ?User $concierge, string $source, array $data): Order
     {
         $order = DB::transaction(function () use ($requester, $concierge, $source, $data) {
-            $estimate = $this->fareService->estimateFare(
-                (float) $data['distance_km'],
-                (int) $data['eta_min'],
-                (int) ($data['pax'] ?? 1),
-                $data['vehicle_type'] ?? 'sedan'
-            );
+            try {
+                $estimate = $this->fareService->estimateFare(
+                    (float) $data['distance_km'],
+                    (int) $data['eta_min'],
+                    (int) ($data['pax'] ?? 1),
+                    $data['vehicle_type'] ?? 'sedan'
+                );
+            } catch (RuntimeException $exception) {
+                $estimate = null;
+            }
+
+            if (! isset($data['offered_fare']) && ! $estimate) {
+                throw new RuntimeException('Enter an offered fare or activate fare pricing.');
+            }
 
             $offeredFare = (float) ($data['offered_fare'] ?? $estimate['suggested_fare']);
 

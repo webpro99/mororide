@@ -134,6 +134,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Fare config
         Route::get('/fare-config', [FareConfigController::class, 'show']);
         Route::post('/fare-config', [FareConfigController::class, 'store']);
+        Route::post('/fare-config/{fareConfig}/activate', [FareConfigController::class, 'activate']);
+        Route::post('/fare-config/{fareConfig}/deactivate', [FareConfigController::class, 'deactivate']);
 
         // Transactions / revenue
         Route::get('/transactions', [AdminTransactionController::class, 'index']);
