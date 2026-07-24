@@ -1163,25 +1163,27 @@ function DriverNotifications({ notifications, onClose, onOpenCall }: {
           {notifications.length === 0 ? <Text style={styles.dim}>No notifications yet.</Text> : notifications.map((item) => {
             const orderId = Number(item.data?.order_id);
             const incomingCall = item.type === 'incoming_voice_call' && Number.isFinite(orderId);
+            const tone = driverNotificationTone(item.type);
             return (
             <Pressable
               key={item.id}
               disabled={!incomingCall}
               onPress={() => incomingCall && onOpenCall(orderId)}
-              style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread]}
+              style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}
             >
-              <View style={styles.notificationItemIcon}>
+              <View style={[styles.notificationItemIcon, { backgroundColor: incomingCall ? colors.success : tone.iconBg }]}>
                 <Ionicons
-                  name={(incomingCall ? 'call' : item.type === 'offer_accepted' ? 'checkmark-circle' : item.type === 'chat_message' ? 'chatbubble' : item.type.includes('payout') ? 'wallet' : 'notifications') as never}
+                  name={(incomingCall ? 'call' : driverNotificationIcon(item.type)) as never}
                   size={20}
                   color={colors.white}
                 />
               </View>
               <View style={{ flex: 1 }}>
+                <Text style={[styles.notificationItemLabel, { color: tone.fg }]}>{incomingCall ? 'Incoming call' : tone.label}</Text>
                 <Text style={styles.notificationItemTitle}>{item.title}</Text>
                 <Text style={styles.notificationItemBody}>{item.body}</Text>
-                <Text style={styles.notificationItemMeta}>{item.type.replace(/_/g, ' ')}</Text>
-                {incomingCall ? <Text style={styles.notificationItemMeta}>Tap to answer</Text> : null}
+                <Text style={[styles.notificationItemMeta, { color: tone.fg }]}>{item.type.replace(/_/g, ' ')}</Text>
+                {incomingCall ? <Text style={[styles.notificationItemMeta, { color: colors.success }]}>Tap to answer</Text> : null}
               </View>
             </Pressable>
           )})}
@@ -1189,6 +1191,33 @@ function DriverNotifications({ notifications, onClose, onOpenCall }: {
       </View>
     </View>
   );
+}
+
+function driverNotificationIcon(type: string) {
+  if (type.includes('call')) return 'call-outline';
+  if (type === 'driver_approved' || type.includes('approved')) return 'shield-checkmark-outline';
+  if (type === 'driver_rejected' || type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) return 'alert-circle-outline';
+  if (type.includes('document') || type.includes('verification')) return 'document-text-outline';
+  if (type === 'offer_accepted' || type.includes('completed')) return 'checkmark-circle-outline';
+  if (type.includes('chat') || type.includes('message')) return 'chatbubble-ellipses-outline';
+  if (type.includes('payout') || type.includes('wallet') || type.includes('points')) return 'wallet-outline';
+  return 'notifications-outline';
+}
+
+function driverNotificationTone(type: string) {
+  if (type === 'driver_approved' || type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
+    return { bg: colors.greenSoft, border: '#cfe8da', fg: colors.success, iconBg: colors.success, label: 'Approved' };
+  }
+  if (type === 'driver_rejected' || type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
+    return { bg: '#fff1ef', border: '#f0c8c1', fg: colors.danger, iconBg: colors.danger, label: 'Action needed' };
+  }
+  if (type.includes('document') || type.includes('verification')) {
+    return { bg: '#fff8ef', border: '#efd8bb', fg: colors.rust, iconBg: colors.rust, label: 'Verification' };
+  }
+  if (type.includes('chat') || type.includes('message') || type.includes('call')) {
+    return { bg: '#eef6fb', border: '#d6e9f5', fg: colors.navy, iconBg: colors.navy, label: 'Message' };
+  }
+  return { bg: colors.white, border: colors.line, fg: colors.rust, iconBg: colors.navy, label: 'Activity' };
 }
 
 function ChatOverlay({ orderId, onClose }: { orderId: number; onClose: () => void }) {
@@ -1600,6 +1629,7 @@ const styles = StyleSheet.create({
   notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, marginBottom: 9, padding: 12 },
   notificationItemUnread: { backgroundColor: '#fff7ed', borderColor: colors.gold },
   notificationItemIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
+  notificationItemLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' },
   notificationItemTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
   notificationItemBody: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
   notificationItemMeta: { color: colors.rust, fontSize: 9, fontWeight: '900', letterSpacing: .7, marginTop: 6, textTransform: 'uppercase' },

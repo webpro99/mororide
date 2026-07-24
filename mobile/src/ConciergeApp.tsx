@@ -585,22 +585,51 @@ function ConciergeNotifications({ notifications, onClose }: { notifications: App
               <Ionicons name="notifications-off-outline" size={26} color={colors.muted} />
               <Text style={styles.bubbleText}>No notifications right now.</Text>
             </View>
-          ) : notifications.map((item) => (
-            <View key={item.id} style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread]}>
-              <View style={styles.notificationIcon}>
-                <Ionicons name={(item.type === 'chat_message' ? 'chatbubble' : item.type.includes('ride') ? 'car-sport' : 'notifications') as never} size={20} color={colors.white} />
+          ) : notifications.map((item) => {
+            const tone = conciergeNotificationTone(item.type);
+            return (
+            <View key={item.id} style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}>
+              <View style={[styles.notificationIcon, { backgroundColor: tone.iconBg }]}>
+                <Ionicons name={conciergeNotificationIcon(item.type) as never} size={20} color={colors.white} />
               </View>
               <View style={{ flex: 1 }}>
+                <Text style={[styles.notificationItemLabel, { color: tone.fg }]}>{tone.label}</Text>
                 <Text style={styles.notificationItemTitle}>{item.title}</Text>
                 <Text style={styles.notificationItemBody}>{item.body}</Text>
-                <Text style={styles.notificationItemMeta}>{item.type.replace(/_/g, ' ')}</Text>
+                <Text style={[styles.notificationItemMeta, { color: tone.fg }]}>{item.type.replace(/_/g, ' ')}</Text>
               </View>
             </View>
-          ))}
+          )})}
         </ScrollView>
       </View>
     </View>
   );
+}
+
+function conciergeNotificationIcon(type: string) {
+  if (type.includes('call')) return 'call-outline';
+  if (type.includes('approved') || type.includes('completed')) return 'checkmark-circle-outline';
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) return 'alert-circle-outline';
+  if (type.includes('document') || type.includes('verification')) return 'document-text-outline';
+  if (type.includes('chat') || type.includes('message')) return 'chatbubble-ellipses-outline';
+  if (type.includes('ride') || type.includes('offer')) return 'car-sport-outline';
+  return 'notifications-outline';
+}
+
+function conciergeNotificationTone(type: string) {
+  if (type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
+    return { bg: colors.greenSoft, border: '#cfe8da', fg: colors.success, iconBg: colors.success, label: 'Success' };
+  }
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
+    return { bg: '#fff1ef', border: '#f0c8c1', fg: colors.rustDark, iconBg: colors.rustDark, label: 'Attention' };
+  }
+  if (type.includes('chat') || type.includes('message') || type.includes('call')) {
+    return { bg: '#eef6fb', border: '#d6e9f5', fg: colors.navy, iconBg: colors.navy, label: 'Message' };
+  }
+  if (type.includes('ride') || type.includes('offer')) {
+    return { bg: '#fff8ef', border: '#efd8bb', fg: colors.rust, iconBg: colors.rust, label: 'Ride update' };
+  }
+  return { bg: colors.white, border: colors.line, fg: colors.rust, iconBg: colors.navy, label: 'Activity' };
 }
 
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -769,6 +798,7 @@ const styles = StyleSheet.create({
   notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, padding: 12 },
   notificationItemUnread: { backgroundColor: '#fff7ed', borderColor: colors.gold },
   notificationIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
+  notificationItemLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' },
   notificationItemTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
   notificationItemBody: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
   notificationItemMeta: { color: colors.rust, fontSize: 9, fontWeight: '900', letterSpacing: .7, marginTop: 6, textTransform: 'uppercase' },

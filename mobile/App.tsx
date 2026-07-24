@@ -2075,20 +2075,22 @@ function NotificationPanel({
             {notifications.map((notification) => {
               const orderId = Number(notification.data?.order_id);
               const incomingCall = notification.type === 'incoming_voice_call' && Number.isFinite(orderId);
+              const tone = notificationTone(notification.type);
               return (
               <Pressable
                 key={notification.id}
                 disabled={!incomingCall}
                 onPress={() => incomingCall && onOpenCall(orderId)}
-                style={styles.notificationCard}
+                style={[styles.notificationCard, !notification.read_at && styles.notificationCardUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}
               >
-                <View style={styles.notificationIcon}>
+                <View style={[styles.notificationIcon, { backgroundColor: incomingCall ? colors.green : tone.iconBg }]}>
                   <Ionicons name={(incomingCall ? 'call' : notificationIcon(notification.type)) as never} size={20} color={colors.white} />
                 </View>
                 <View style={{ flex: 1 }}>
+                  <Text style={[styles.notificationPill, { color: tone.fg }]}>{incomingCall ? 'Incoming call' : tone.label}</Text>
                   <Text style={styles.notificationCardTitle}>{notification.title}</Text>
                   <Text style={styles.notificationCardBody}>{notification.body}</Text>
-                  <Text style={styles.notificationType}>{notification.type.replace(/_/g, ' ')}</Text>
+                  <Text style={[styles.notificationType, { color: tone.fg }]}>{notification.type.replace(/_/g, ' ')}</Text>
                   {incomingCall ? <Text style={styles.notificationType}>Tap to answer</Text> : null}
                 </View>
               </Pressable>
@@ -2101,11 +2103,32 @@ function NotificationPanel({
 }
 
 function notificationIcon(type: string) {
+  if (type.includes('call')) return 'call-outline';
+  if (type.includes('approved')) return 'shield-checkmark-outline';
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) return 'alert-circle-outline';
+  if (type.includes('document') || type.includes('verification')) return 'document-text-outline';
+  if (type.includes('chat') || type.includes('message')) return 'chatbubble-ellipses-outline';
   if (type.includes('driver')) return 'shield-checkmark-outline';
   if (type.includes('points')) return 'wallet-outline';
   if (type.includes('payment')) return 'card-outline';
   if (type.includes('completed')) return 'checkmark-circle-outline';
   return 'car-sport-outline';
+}
+
+function notificationTone(type: string) {
+  if (type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
+    return { bg: colors.greenSoft, border: '#cfe8da', fg: colors.green, iconBg: colors.green, label: 'Approved' };
+  }
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
+    return { bg: '#fff1ef', border: '#f0c8c1', fg: colors.rustDark, iconBg: colors.rustDark, label: 'Attention' };
+  }
+  if (type.includes('document') || type.includes('verification') || type.includes('driver')) {
+    return { bg: '#fff8ef', border: '#efd8bb', fg: colors.rust, iconBg: colors.rust, label: 'Verification' };
+  }
+  if (type.includes('chat') || type.includes('message') || type.includes('call')) {
+    return { bg: '#eef6fb', border: '#d6e9f5', fg: colors.navy, iconBg: colors.navy, label: 'Message' };
+  }
+  return { bg: colors.card, border: colors.line, fg: colors.rust, iconBg: colors.navy, label: 'Activity' };
 }
 
 function ProfileHeader({ onBack }: { onBack: () => void }) {
@@ -2799,6 +2822,13 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 13,
   },
+  notificationCardUnread: {
+    shadowColor: '#7a431f',
+    shadowOpacity: 0.10,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
   notificationIcon: {
     alignItems: 'center',
     backgroundColor: colors.navy,
@@ -2811,6 +2841,13 @@ const styles = StyleSheet.create({
     color: colors.navy,
     fontSize: 16,
     fontWeight: '900',
+  },
+  notificationPill: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 4,
+    textTransform: 'uppercase',
   },
   notificationCardBody: {
     color: colors.muted,
