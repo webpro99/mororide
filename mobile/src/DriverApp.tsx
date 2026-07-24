@@ -1462,7 +1462,7 @@ const styles = StyleSheet.create({
   tabCountText: { color: colors.white, fontSize: 8, fontWeight: '900' },
 
   // Chat overlay
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,20,38,0.5)', justifyContent: 'flex-end', zIndex: 120 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,20,38,0.38)', alignItems: 'flex-end', justifyContent: 'flex-start', paddingHorizontal: 12, paddingTop: 88, zIndex: 120 },
   callOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.navy, zIndex: 120 },
   callButton: { backgroundColor: colors.success, borderColor: colors.success, width: 48 },
   chatPage: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.sand, zIndex: 100 },
@@ -1495,7 +1495,7 @@ const styles = StyleSheet.create({
   bubbleMeta: { fontSize: 10, color: colors.muted, marginBottom: 2 }, bubbleText: { fontSize: 13.5, color: colors.ink },
   chatInput: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.white, color: colors.ink },
   chatError: { color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
-  notificationSheet: { alignSelf: 'center', backgroundColor: colors.sand, borderTopLeftRadius: 26, borderTopRightRadius: 26, gap: 14, maxHeight: '78%', paddingBottom: 24, paddingHorizontal: 16, paddingTop: 18, width: '100%', maxWidth: 560 },
+  notificationSheet: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 24, borderWidth: 1, gap: 14, maxHeight: '74%', paddingBottom: 18, paddingHorizontal: 16, paddingTop: 18, width: '92%', maxWidth: 392, ...shadow, elevation: 18 },
   notificationTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
   notificationScroll: { maxHeight: 520 },
   notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, marginBottom: 9, padding: 12 },

@@ -31,7 +31,9 @@ import {
   getConciergeOffers,
   getConciergeOrder,
   getConciergeOrders,
+  getNotifications,
   getOrderMessages,
+  markNotificationRead,
   rateConciergeOrder,
   restoreSession,
   sendOrderImage,
@@ -40,7 +42,7 @@ import {
 import { registerForPush, unregisterPush } from './push';
 import { createRealtimeClient } from './realtime';
 import { colors, radius } from './theme';
-import { Catalog, ChatMessage, Order, OrderOffer } from './types';
+import { AppNotification, Catalog, ChatMessage, Order, OrderOffer } from './types';
 
 const moroLogoMark = require('../assets/moro_logo_mark_transparent.png');
 
@@ -65,6 +67,9 @@ const SCREEN_TITLES: Record<Screen, string> = {
 export default function ConciergeApp({ onSwitchRole, freeLaunch = false }: { onSwitchRole: () => void; freeLaunch?: boolean }) {
   const [screen, setScreen] = useState<Screen>('book');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationBadge, setNotificationBadge] = useState(0);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -117,6 +122,33 @@ export default function ConciergeApp({ onSwitchRole, freeLaunch = false }: { onS
   useEffect(() => {
     if (freeLaunch && payment === 'card') setPayment('cash');
   }, [freeLaunch, payment]);
+
+  useEffect(() => {
+    if (!ready) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const all = await getNotifications();
+        if (!active) return;
+        setNotifications(all);
+        setNotificationBadge(all.filter((item) => !item.read_at).length);
+      } catch { /* best effort */ }
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [ready]);
+
+  async function openNotifications() {
+    setNotificationsOpen(true);
+    const unread = notifications.filter((item) => !item.read_at);
+    await Promise.all(unread.map((item) => markNotificationRead(item.id).catch(() => null)));
+    setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })));
+    setNotificationBadge(0);
+  }
 
   // Realtime: offers, status, and chat for the active order.
   useEffect(() => {
@@ -343,10 +375,10 @@ export default function ConciergeApp({ onSwitchRole, freeLaunch = false }: { onS
           <Text style={styles.brand}>MoroRide</Text>
           <Text style={styles.brandSub}>Concierge · {SCREEN_TITLES[screen]}</Text>
         </View>
-        <View style={styles.rolePill}>
-          <MaterialCommunityIcons name="bell-ring-outline" size={17} color={colors.navy} />
-          <Text style={styles.rolePillText}>Concierge</Text>
-        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open notifications" onPress={openNotifications} style={styles.headerBell}>
+          <Ionicons name="notifications-outline" size={22} color={colors.white} />
+          {notificationBadge > 0 ? <View style={styles.headerBellBadge}><Text style={styles.headerBellBadgeText}>{notificationBadge > 9 ? '9+' : notificationBadge}</Text></View> : null}
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
@@ -530,7 +562,44 @@ export default function ConciergeApp({ onSwitchRole, freeLaunch = false }: { onS
           </View>
         </View>
       ) : null}
+      {notificationsOpen ? <ConciergeNotifications notifications={notifications} onClose={() => setNotificationsOpen(false)} /> : null}
     </SafeAreaView>
+  );
+}
+
+function ConciergeNotifications({ notifications, onClose }: { notifications: AppNotification[]; onClose: () => void }) {
+  return (
+    <View style={styles.notificationLayer}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.notificationPanel}>
+        <View style={styles.notificationHead}>
+          <View>
+            <Text style={styles.menuEyebrow}>ACTIVITY</Text>
+            <Text style={styles.notificationTitle}>Notifications</Text>
+          </View>
+          <Pressable onPress={onClose} style={styles.menuClose}><Ionicons name="close" size={22} color={colors.navy} /></Pressable>
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.notificationList}>
+          {notifications.length === 0 ? (
+            <View style={styles.notificationEmpty}>
+              <Ionicons name="notifications-off-outline" size={26} color={colors.muted} />
+              <Text style={styles.bubbleText}>No notifications right now.</Text>
+            </View>
+          ) : notifications.map((item) => (
+            <View key={item.id} style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread]}>
+              <View style={styles.notificationIcon}>
+                <Ionicons name={(item.type === 'chat_message' ? 'chatbubble' : item.type.includes('ride') ? 'car-sport' : 'notifications') as never} size={20} color={colors.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.notificationItemTitle}>{item.title}</Text>
+                <Text style={styles.notificationItemBody}>{item.body}</Text>
+                <Text style={styles.notificationItemMeta}>{item.type.replace(/_/g, ' ')}</Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -605,6 +674,9 @@ const styles = StyleSheet.create({
   menuButton: { alignItems: 'center', borderColor: 'rgba(255,255,255,.2)', borderRadius: 12, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
   brand: { color: colors.white, fontSize: 19, fontWeight: '900' },
   brandSub: { color: '#b9cbe0', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  headerBell: { alignItems: 'center', borderColor: 'rgba(255,255,255,.22)', borderRadius: 13, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
+  headerBellBadge: { alignItems: 'center', backgroundColor: colors.rust, borderColor: colors.navy, borderRadius: 9, borderWidth: 2, justifyContent: 'center', minHeight: 18, minWidth: 18, paddingHorizontal: 3, position: 'absolute', right: -5, top: -5 },
+  headerBellBadgeText: { color: colors.white, fontSize: 8, fontWeight: '900' },
   rolePill: { alignItems: 'center', backgroundColor: colors.gold, borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 10, paddingVertical: 8 },
   rolePillText: { color: colors.navy, fontSize: 11, fontWeight: '900' },
   body: { padding: 16, paddingBottom: 64 },
@@ -688,4 +760,16 @@ const styles = StyleSheet.create({
   menuFooter: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 'auto', paddingTop: 18 },
   menuFooterMark: { height: 30, width: 30 },
   menuFooterText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+  notificationLayer: { ...StyleSheet.absoluteFillObject, alignItems: 'flex-end', backgroundColor: 'rgba(8,20,38,.38)', justifyContent: 'flex-start', paddingHorizontal: 12, paddingTop: 88, zIndex: 100 },
+  notificationPanel: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 24, borderWidth: 1, elevation: 18, maxHeight: '74%', maxWidth: 392, padding: 16, width: '92%' },
+  notificationHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
+  notificationTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
+  notificationList: { gap: 9, paddingBottom: 8 },
+  notificationEmpty: { alignItems: 'center', gap: 8, paddingVertical: 24 },
+  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, padding: 12 },
+  notificationItemUnread: { backgroundColor: '#fff7ed', borderColor: colors.gold },
+  notificationIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
+  notificationItemTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
+  notificationItemBody: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  notificationItemMeta: { color: colors.rust, fontSize: 9, fontWeight: '900', letterSpacing: .7, marginTop: 6, textTransform: 'uppercase' },
 });
