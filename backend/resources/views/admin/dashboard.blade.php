@@ -143,13 +143,23 @@
         .chk { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0ece3; }
         .doc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; }
         .doc-card { border:1px solid var(--line); border-radius:14px; background:#fff; overflow:hidden; display:flex; flex-direction:column; min-height:250px; }
-        .doc-preview { height:132px; background:#f4f1eb; display:grid; place-items:center; color:var(--muted); border-bottom:1px solid var(--line); overflow:hidden; }
+        .doc-preview { height:132px; background:#f4f1eb; cursor:pointer; display:grid; place-items:center; color:var(--muted); border-bottom:1px solid var(--line); overflow:hidden; position:relative; }
+        .doc-preview:after { align-items:center; background:rgba(8,47,79,.72); color:#fff; content:'Click to enlarge'; display:flex; font-size:12px; font-weight:900; inset:auto 10px 10px 10px; justify-content:center; opacity:0; padding:7px 10px; position:absolute; border-radius:999px; transition:.15s ease; }
+        .doc-preview:hover:after { opacity:1; }
         .doc-preview img { width:100%; height:100%; object-fit:cover; display:block; }
         .doc-preview .doc-icon { font-size:34px; opacity:.75; }
+        .doc-preview.loading .doc-icon { animation:pulse 1s ease-in-out infinite; }
         .doc-body { padding:12px; display:grid; gap:8px; flex:1; }
         .doc-title { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:900; color:var(--navy); }
         .doc-meta { color:var(--muted); font-size:11.5px; line-height:1.45; overflow-wrap:anywhere; }
         .doc-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:auto; }
+        .doc-viewer-modal { max-width:980px; width:min(96vw,980px); }
+        .doc-viewer-body { background:#f7f3ec; padding:14px; }
+        .doc-viewer-frame { align-items:center; background:#161f2c; border-radius:16px; display:flex; justify-content:center; min-height:68vh; overflow:hidden; }
+        .doc-viewer-frame img { max-height:78vh; max-width:100%; object-fit:contain; }
+        .doc-viewer-frame iframe { background:#fff; border:0; height:78vh; width:100%; }
+        .doc-viewer-file { color:var(--muted); font-size:12px; font-weight:700; margin-top:10px; overflow-wrap:anywhere; }
+        @keyframes pulse { 0%,100% { opacity:.45; } 50% { opacity:1; } }
         .fare-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
         .fare-form .wide { grid-column:1 / -1; }
         .fare-preview { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:12px; }
@@ -423,12 +433,12 @@
                 }
 
                 return `<div class="doc-card">
-                  <div class="doc-preview" id="docPrev${doc.id}"><span class="doc-icon">${doc.is_pdf ? 'PDF' : '📄'}</span></div>
+                  <div class="doc-preview loading" id="docPrev${doc.id}" onclick="showDocument(${doc.id}, '${esc(label)}', '${esc(doc.file_name || doc.original_name || doc.file_path)}', ${doc.is_pdf ? 'true' : 'false'})"><span class="doc-icon">Loading…</span></div>
                   <div class="doc-body">
                     <div class="doc-title"><span>${esc(label)}</span>${statusBadge(doc.status)}</div>
                     <div class="doc-meta">${esc(doc.file_name || doc.original_name || doc.file_path)}<br>Uploaded ${dt(doc.created_at)}${doc.note ? `<br><b>Note:</b> ${esc(doc.note)}` : ''}</div>
                     <div class="doc-actions">
-                      <button class="btn sm" onclick="openDocument(${doc.id})">Open</button>
+                      <button class="btn sm" onclick="showDocument(${doc.id}, '${esc(label)}', '${esc(doc.file_name || doc.original_name || doc.file_path)}', ${doc.is_pdf ? 'true' : 'false'})">View</button>
                       <button class="btn sm ok" onclick="reviewDocument(${doc.id}, 'approved', ${id})">Approve</button>
                       <button class="btn sm danger" onclick="reviewDocument(${doc.id}, 'rejected', ${id})">Reject</button>
                       <button class="btn sm" onclick="requestDoc(${id}, '${esc(c.type)}')">Request new</button>
@@ -440,7 +450,7 @@
                 `<div class="notice info"><b>${d.has_all_required ? 'All required files are uploaded.' : 'Some required files are still missing.'}</b><br>Open each document, then approve, reject, or request a replacement from the driver.</div>
                  <div class="doc-grid">${cards}</div>`);
             for (const c of d.checklist) {
-                if (c.document?.is_image) loadDocumentPreview(c.document.id);
+                if (c.document) loadDocumentPreview(c.document.id, c.document.is_pdf);
             }
         } catch(e){ toast(e.message,'err'); }
     };
@@ -451,22 +461,33 @@
         if (!res.ok) throw new Error('Could not open document');
         return res.blob();
     };
-    window.loadDocumentPreview = async (docId) => {
+    window.loadDocumentPreview = async (docId, isPdf=false) => {
         const box = document.getElementById(`docPrev${docId}`);
         if (!box) return;
         try {
             const blob = await fetchDocumentBlob(docId);
             const url = URL.createObjectURL(blob);
-            box.innerHTML = `<img src="${url}" alt="Document preview">`;
+            box.classList.remove('loading');
+            box.innerHTML = isPdf ? '<span class="doc-icon">PDF</span>' : `<img src="${url}" alt="Document preview">`;
         } catch (_) {
+            box.classList.remove('loading');
             box.innerHTML = '<span class="doc-icon">📄</span>';
         }
     };
-    window.openDocument = async (docId) => {
+    window.showDocument = async (docId, title='Document', fileName='', isPdf=false) => {
         try {
             const blob = await fetchDocumentBlob(docId);
             const url = URL.createObjectURL(blob);
-            window.open(url, '_blank', 'noopener');
+            const o = document.getElementById('overlay');
+            o.innerHTML = `<div class="modal doc-viewer-modal">
+              <div class="modal-head">${esc(title)}</div>
+              <div class="modal-body doc-viewer-body">
+                <div class="doc-viewer-frame">${isPdf ? `<iframe src="${url}" title="${esc(title)}"></iframe>` : `<img src="${url}" alt="${esc(title)}">`}</div>
+                <div class="doc-viewer-file">${esc(fileName)}</div>
+              </div>
+              <div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div>
+            </div>`;
+            o.classList.add('show');
         } catch(e){ toast(e.message,'err'); }
     };
     window.reviewDocument = async (docId, status, driverId) => {
