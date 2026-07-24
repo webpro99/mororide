@@ -132,20 +132,22 @@
         /* Modal */
         .overlay { position:fixed; inset:0; background:rgba(8,20,38,.5); display:none; align-items:center; justify-content:center; z-index:50; padding:20px; }
         .overlay.show { display:flex; }
-        .modal { background:#fff; border-radius:16px; width:min(520px,100%); max-height:88vh; overflow:auto; box-shadow:0 30px 70px rgba(8,20,38,.35); }
-        .modal-head { padding:18px 20px; border-bottom:1px solid var(--line); font-weight:900; color:var(--navy); font-size:16px; }
-        .modal-body { padding:18px 20px; display:grid; gap:14px; }
+        .modal { background:#fff; border-radius:22px; width:min(520px,100%); max-height:88vh; overflow:hidden; box-shadow:0 30px 70px rgba(8,20,38,.35); display:flex; flex-direction:column; }
+        .modal-head { align-items:center; background:#fff; border-bottom:1px solid var(--line); color:var(--navy); display:flex; font-size:16px; font-weight:900; gap:12px; justify-content:space-between; padding:16px 18px 14px 20px; position:sticky; top:0; z-index:3; }
+        .modal-body { padding:18px 20px; display:grid; gap:14px; overflow:auto; }
         .modal-body label { font-size:12.5px; font-weight:700; }
         .modal-body .fld { display:grid; gap:6px; }
         .modal-body input, .modal-body select, .modal-body textarea { width:100%; }
-        .modal-foot { padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
+        .modal-foot { background:#fff; padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
         .modal { position:relative; }
-        .modal-close-red { align-items:center; background:#c73e3e; border:2px solid #fff; border-radius:999px; box-shadow:0 8px 22px rgba(8,20,38,.35); color:#fff; cursor:pointer; display:flex; font-size:21px; font-weight:900; height:38px; justify-content:center; line-height:1; position:absolute; right:-12px; top:-12px; width:38px; z-index:2; }
-        .modal-close-red:hover { background:#9f2828; }
+        .modal-close-red { align-items:center; background:#fff1ef; border:1px solid #f0c8c1; border-radius:14px; color:#b83e3e; cursor:pointer; display:flex; font-size:24px; font-weight:900; height:40px; justify-content:center; line-height:1; width:40px; flex:0 0 auto; }
+        .modal-close-red:hover { background:#b83e3e; border-color:#b83e3e; color:#fff; }
         .kv { display:grid; grid-template-columns: 130px 1fr; gap:6px 12px; font-size:13px; }
         .kv dt { color:var(--muted); font-weight:600; }
         .chk { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0ece3; }
-        .doc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; }
+        .docs-modal { width:min(94vw,880px); }
+        .docs-modal .modal-body { background:#fff; padding:18px 22px 22px; }
+        .doc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; width:100%; }
         .doc-card { border:1px solid var(--line); border-radius:14px; background:#fff; overflow:hidden; display:flex; flex-direction:column; min-height:250px; }
         .doc-preview { height:132px; background:#f4f1eb; cursor:pointer; display:grid; place-items:center; color:var(--muted); border-bottom:1px solid var(--line); overflow:hidden; position:relative; }
         .doc-preview:after { align-items:center; background:rgba(8,47,79,.72); color:#fff; content:'Click to enlarge'; display:flex; font-size:12px; font-weight:900; inset:auto 10px 10px 10px; justify-content:center; opacity:0; padding:7px 10px; position:absolute; border-radius:999px; transition:.15s ease; }
@@ -172,7 +174,7 @@
         .fare-status-dot { border-radius:999px; height:12px; width:12px; }
         .fare-status-dot.on { background:#2f8f5b; box-shadow:0 0 0 5px #dff3e8; }
         .fare-status-dot.off { background:#a6a096; box-shadow:0 0 0 5px #eee8df; }
-        @media (max-width: 900px) { .fare-form { grid-template-columns:1fr; } .fare-form .wide { grid-column:auto; } }
+        @media (max-width: 900px) { .fare-form { grid-template-columns:1fr; } .fare-form .wide { grid-column:auto; } .overlay { padding:10px; } .docs-modal { width:100%; } .doc-grid { grid-template-columns:1fr; } }
         .msg { padding:10px 12px; border-radius:12px; background:#f5f2ec; margin-bottom:8px; }
         .msg .meta { font-size:11px; color:var(--muted); margin-bottom:3px; }
 
@@ -304,9 +306,9 @@
     /* ---------- Modal ---------- */
     function closeModal() { document.getElementById('overlay').classList.remove('show'); document.getElementById('overlay').innerHTML=''; }
     function closeViewer() { document.getElementById('viewerOverlay').classList.remove('show'); document.getElementById('viewerOverlay').innerHTML=''; }
-    function infoModal(title, bodyHtml) {
+    function infoModal(title, bodyHtml, modalClass='') {
         const o = document.getElementById('overlay');
-        o.innerHTML = `<div class="modal"><button class="modal-close-red" onclick="closeModal()" aria-label="Close modal">×</button><div class="modal-head">${esc(title)}</div><div class="modal-body">${bodyHtml}</div>
+        o.innerHTML = `<div class="modal ${esc(modalClass)}"><div class="modal-head"><span>${esc(title)}</span><button class="modal-close-red" onclick="closeModal()" aria-label="Close modal">×</button></div><div class="modal-body">${bodyHtml}</div>
             <div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
         o.classList.add('show');
     }
@@ -325,7 +327,7 @@
                 }
                 return `<div class="fld"><label for="${id}">${esc(f.label)}</label><input id="${id}" type="${f.type||'text'}" value="${esc(f.value??'')}" placeholder="${esc(f.placeholder||'')}"></div>`;
             }).join('');
-            o.innerHTML = `<div class="modal"><button class="modal-close-red" id="mX" aria-label="Close modal">×</button><div class="modal-head">${esc(title)}</div>
+            o.innerHTML = `<div class="modal"><div class="modal-head"><span>${esc(title)}</span><button class="modal-close-red" id="mX" aria-label="Close modal">×</button></div>
                 <div class="modal-body">${fieldHtml}</div>
                 <div class="modal-foot"><button class="btn" id="mCancel">Cancel</button><button class="btn primary" id="mOk">${esc(submitLabel)}</button></div></div>`;
             o.classList.add('show');
@@ -456,7 +458,7 @@
             }).join('');
             infoModal(`Documents — ${esc(d.driver?.name||('#'+id))}`,
                 `<div class="notice info"><b>${d.has_all_required ? 'All required files are uploaded.' : 'Some required files are still missing.'}</b><br>Open each document, then approve, reject, or request a replacement from the driver.</div>
-                 <div class="doc-grid">${cards}</div>`);
+                 <div class="doc-grid">${cards}</div>`, 'docs-modal');
             for (const c of d.checklist) {
                 if (c.document) loadDocumentPreview(c.document.id, c.document.is_pdf);
             }
@@ -488,8 +490,7 @@
             const url = URL.createObjectURL(blob);
             const o = document.getElementById('viewerOverlay');
             o.innerHTML = `<div class="modal doc-viewer-modal">
-              <button class="modal-close-red" onclick="closeViewer()" aria-label="Close document viewer">×</button>
-              <div class="modal-head">${esc(title)}</div>
+              <div class="modal-head"><span>${esc(title)}</span><button class="modal-close-red" onclick="closeViewer()" aria-label="Close document viewer">×</button></div>
               <div class="modal-body doc-viewer-body">
                 <div class="doc-viewer-frame">${isPdf ? `<iframe src="${url}" title="${esc(title)}"></iframe>` : `<img src="${url}" alt="${esc(title)}">`}</div>
                 <div class="doc-viewer-file">${esc(fileName)}</div>
