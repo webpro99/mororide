@@ -1179,10 +1179,14 @@ function BookingScreen(props: {
   onOpenNotifications: () => void;
   onFindDriver: () => void;
 }) {
+  const routeDistanceKm = props.pickupCoord && props.dropoffCoord
+    ? Math.round(haversineKm(props.pickupCoord, props.dropoffCoord) * 10) / 10
+    : null;
+  const routeEtaMin = routeDistanceKm ? Math.max(1, Math.round((routeDistanceKm / 45) * 60)) : null;
   const displayedFare = props.suggestedFare ? Math.round(props.suggestedFare.suggested_fare) : Number(props.price || 0);
   const fareMeta = props.suggestedFare
     ? `Admin rate · ${props.suggestedFare.distance_km} km · ${props.suggestedFare.eta_min} min · ${props.suggestedFare.vehicle_type}`
-    : 'Choose pickup and drop-off to calculate';
+    : (routeDistanceKm ? `${routeDistanceKm} km route · ${routeEtaMin} min estimated` : 'Choose pickup and drop-off to calculate');
 
   return (
     <View style={styles.screen}>
@@ -1212,6 +1216,30 @@ function BookingScreen(props: {
           onPickPickup={props.onPickPickup}
           onPickDropoff={props.onPickDropoff}
         />
+
+        {routeDistanceKm ? (
+          <Card style={styles.tripMetricsCard}>
+            <View style={styles.tripMetric}>
+              <View style={styles.tripMetricIcon}>
+                <Ionicons name="navigate-outline" size={21} color={colors.navy} />
+              </View>
+              <View>
+                <Text style={styles.tripMetricLabel}>Trip distance</Text>
+                <Text style={styles.tripMetricValue}>{routeDistanceKm} km</Text>
+              </View>
+            </View>
+            <View style={styles.tripMetricDivider} />
+            <View style={styles.tripMetric}>
+              <View style={styles.tripMetricIcon}>
+                <Ionicons name="time-outline" size={21} color={colors.navy} />
+              </View>
+              <View>
+                <Text style={styles.tripMetricLabel}>Estimated time</Text>
+                <Text style={styles.tripMetricValue}>{routeEtaMin} min</Text>
+              </View>
+            </View>
+          </Card>
+        ) : null}
 
         <View style={styles.twoCols}>
           <Stepper label="Passengers" value={props.passengers} icon="person-outline" onMinus={() => props.setPassengers(Math.max(1, props.passengers - 1))} onPlus={() => props.setPassengers(props.passengers + 1)} />
@@ -3175,6 +3203,44 @@ const styles = StyleSheet.create({
   mapPointCopy: { flex: 1 },
   mapPointButtonText: { color: colors.navy, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   mapPointAddress: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 3 },
+  tripMetricsCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 4,
+    marginTop: 0,
+    padding: 14,
+  },
+  tripMetric: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  tripMetricIcon: {
+    alignItems: 'center',
+    backgroundColor: '#eef6fb',
+    borderRadius: 14,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  tripMetricLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tripMetricValue: {
+    color: colors.navy,
+    fontSize: 19,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  tripMetricDivider: {
+    backgroundColor: colors.line,
+    height: 46,
+    width: 1,
+  },
   routeRow: {
     alignItems: 'center',
     flexDirection: 'row',
