@@ -139,6 +139,9 @@
         .modal-body .fld { display:grid; gap:6px; }
         .modal-body input, .modal-body select, .modal-body textarea { width:100%; }
         .modal-foot { padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
+        .modal { position:relative; }
+        .modal-close-red { align-items:center; background:#c73e3e; border:2px solid #fff; border-radius:999px; box-shadow:0 8px 22px rgba(8,20,38,.35); color:#fff; cursor:pointer; display:flex; font-size:21px; font-weight:900; height:38px; justify-content:center; line-height:1; position:absolute; right:-12px; top:-12px; width:38px; z-index:2; }
+        .modal-close-red:hover { background:#9f2828; }
         .kv { display:grid; grid-template-columns: 130px 1fr; gap:6px 12px; font-size:13px; }
         .kv dt { color:var(--muted); font-weight:600; }
         .chk { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0ece3; }
@@ -156,9 +159,6 @@
         .doc-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:auto; }
         .doc-viewer-modal { max-width:980px; width:min(96vw,980px); }
         .viewer-overlay { z-index:70; background:rgba(3,18,32,.72); }
-        .doc-viewer-modal { position:relative; }
-        .doc-viewer-close { align-items:center; background:#c73e3e; border:2px solid #fff; border-radius:999px; box-shadow:0 8px 22px rgba(8,20,38,.35); color:#fff; cursor:pointer; display:flex; height:38px; justify-content:center; position:absolute; right:-12px; top:-12px; width:38px; z-index:2; }
-        .doc-viewer-close:hover { background:#9f2828; }
         .doc-viewer-body { background:#f7f3ec; padding:14px; }
         .doc-viewer-frame { align-items:center; background:#161f2c; border-radius:16px; display:flex; justify-content:center; min-height:68vh; overflow:hidden; }
         .doc-viewer-frame img { max-height:78vh; max-width:100%; object-fit:contain; }
@@ -306,7 +306,7 @@
     function closeViewer() { document.getElementById('viewerOverlay').classList.remove('show'); document.getElementById('viewerOverlay').innerHTML=''; }
     function infoModal(title, bodyHtml) {
         const o = document.getElementById('overlay');
-        o.innerHTML = `<div class="modal"><div class="modal-head">${esc(title)}</div><div class="modal-body">${bodyHtml}</div>
+        o.innerHTML = `<div class="modal"><button class="modal-close-red" onclick="closeModal()" aria-label="Close modal">×</button><div class="modal-head">${esc(title)}</div><div class="modal-body">${bodyHtml}</div>
             <div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
         o.classList.add('show');
     }
@@ -325,10 +325,11 @@
                 }
                 return `<div class="fld"><label for="${id}">${esc(f.label)}</label><input id="${id}" type="${f.type||'text'}" value="${esc(f.value??'')}" placeholder="${esc(f.placeholder||'')}"></div>`;
             }).join('');
-            o.innerHTML = `<div class="modal"><div class="modal-head">${esc(title)}</div>
+            o.innerHTML = `<div class="modal"><button class="modal-close-red" id="mX" aria-label="Close modal">×</button><div class="modal-head">${esc(title)}</div>
                 <div class="modal-body">${fieldHtml}</div>
                 <div class="modal-foot"><button class="btn" id="mCancel">Cancel</button><button class="btn primary" id="mOk">${esc(submitLabel)}</button></div></div>`;
             o.classList.add('show');
+            document.getElementById('mX').onclick = () => { closeModal(); resolve(null); };
             document.getElementById('mCancel').onclick = () => { closeModal(); resolve(null); };
             document.getElementById('mOk').onclick = () => {
                 const out = {};
@@ -487,7 +488,7 @@
             const url = URL.createObjectURL(blob);
             const o = document.getElementById('viewerOverlay');
             o.innerHTML = `<div class="modal doc-viewer-modal">
-              <button class="doc-viewer-close" onclick="closeViewer()" aria-label="Close document viewer">×</button>
+              <button class="modal-close-red" onclick="closeViewer()" aria-label="Close document viewer">×</button>
               <div class="modal-head">${esc(title)}</div>
               <div class="modal-body doc-viewer-body">
                 <div class="doc-viewer-frame">${isPdf ? `<iframe src="${url}" title="${esc(title)}"></iframe>` : `<img src="${url}" alt="${esc(title)}">`}</div>
