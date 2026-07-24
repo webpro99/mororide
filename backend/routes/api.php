@@ -128,6 +128,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/drivers/{driver}/approve', [DriverVerificationController::class, 'approve']);
         Route::post('/drivers/{driver}/reject', [DriverVerificationController::class, 'reject']);
         Route::post('/drivers/{driver}/request-document', [DriverVerificationController::class, 'requestDocument']);
+        Route::get('/documents/{document}/file', [DriverVerificationController::class, 'file']);
+        Route::post('/documents/{document}/review', [DriverVerificationController::class, 'reviewDocument']);
 
         // Fare config
         Route::get('/fare-config', [FareConfigController::class, 'show']);

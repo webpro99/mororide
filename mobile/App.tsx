@@ -22,6 +22,7 @@ import {
   chooseRiderOffer,
   createRidePaymentIntent,
   createRiderOrder,
+  estimateFare,
   getApiBaseUrl,
   setApiBaseUrl,
   getAccessToken,
@@ -50,7 +51,7 @@ import { LocationPicker, PickedLocation } from './src/LocationPicker';
 import { VoiceCallScreen } from './src/VoiceCallScreen';
 import { IncomingCallPrompt } from './src/IncomingCallPrompt';
 import { createRealtimeClient } from './src/realtime';
-import { AppNotification, Catalog, CatalogCity, CatalogDriver, CatalogVehicle, ChatMessage, DriverLocationEvent, Order, OrderOffer, RideConversation } from './src/types';
+import { AppNotification, Catalog, CatalogCity, CatalogDriver, CatalogVehicle, ChatMessage, DriverLocationEvent, FareEstimate, Order, OrderOffer, RideConversation } from './src/types';
 
 type Screen = 'booking' | 'offers' | 'profile' | 'tracking' | 'chat' | 'call' | 'completed' | 'history' | 'messages';
 type DemoCoord = { lat: number; lng: number };
@@ -458,6 +459,8 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
   const [luggage, setLuggage] = useState(2);
   const [payment, setPayment] = useState<'cash' | 'card'>('cash');
   const [price, setPrice] = useState('120');
+  const [suggestedFare, setSuggestedFare] = useState<FareEstimate | null>(null);
+  const [priceEdited, setPriceEdited] = useState(false);
   const [pickup, setPickup] = useState<PickedLocation | null>(null);
   const [dropoff, setDropoff] = useState<PickedLocation | null>(null);
   const [locationPicker, setLocationPicker] = useState<'pickup' | 'dropoff' | null>(null);
@@ -540,6 +543,39 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!pickup || !dropoff) {
+      setSuggestedFare(null);
+      return undefined;
+    }
+
+    const tripDistance = Math.round(haversineKm(pickup, dropoff) * 10) / 10;
+    if (tripDistance < 0.1) {
+      setSuggestedFare(null);
+      return undefined;
+    }
+
+    let active = true;
+    const etaMin = Math.max(1, Math.round((tripDistance / 45) * 60));
+
+    estimateFare({
+      distance_km: tripDistance,
+      eta_min: etaMin,
+      pax: passengers,
+      vehicle_type: selectedVehicleKey,
+    })
+      .then((fare) => {
+        if (!active) return;
+        setSuggestedFare(fare);
+        if (!priceEdited) setPrice(String(Math.round(fare.suggested_fare)));
+      })
+      .catch(() => {
+        if (active) setSuggestedFare(null);
+      });
+
+    return () => { active = false; };
+  }, [pickup, dropoff, passengers, selectedVehicleKey, priceEdited]);
 
   useEffect(() => {
     if (!currentOrder) return undefined;
@@ -833,6 +869,8 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       setPassengers(1);
       setLuggage(0);
       setPrice('');
+      setSuggestedFare(null);
+      setPriceEdited(false);
       setPayment('cash');
       setRating(0);
       announcedAssignmentRef.current = null;
@@ -1022,7 +1060,16 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         payment={payment}
         setPayment={setPayment}
         price={price}
-        setPrice={setPrice}
+        setPrice={(value) => {
+          setPriceEdited(true);
+          setPrice(value);
+        }}
+        suggestedFare={suggestedFare}
+        onUseSuggestedFare={() => {
+          if (!suggestedFare) return;
+          setPrice(String(Math.round(suggestedFare.suggested_fare)));
+          setPriceEdited(false);
+        }}
         pickupCoord={pickup}
         dropoffCoord={dropoff}
         onPickPickup={() => setLocationPicker('pickup')}
@@ -1035,7 +1082,7 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         onFindDriver={findDriver}
       />
     );
-  }, [screen, catalog, currentOrder, selectedDriver, selectedOffer, offers, offersLoading, driverCoord, messages, chatLoading, selectedCityId, selectedVehicleKey, passengers, luggage, payment, price, pickup, dropoff, loading, catalogLoading, notice, rating, rideHistory, conversations, archiveLoading, chatBackScreen]);
+  }, [screen, catalog, currentOrder, selectedDriver, selectedOffer, offers, offersLoading, driverCoord, messages, chatLoading, selectedCityId, selectedVehicleKey, passengers, luggage, payment, price, suggestedFare, pickup, dropoff, loading, catalogLoading, notice, rating, rideHistory, conversations, archiveLoading, chatBackScreen]);
 
   function navigate(screenName: Screen) {
     setScreen(screenName);
@@ -1115,6 +1162,8 @@ function BookingScreen(props: {
   setPayment: (value: 'cash' | 'card') => void;
   price: string;
   setPrice: (value: string) => void;
+  suggestedFare: FareEstimate | null;
+  onUseSuggestedFare: () => void;
   pickupCoord: PickedLocation | null;
   dropoffCoord: PickedLocation | null;
   onPickPickup: () => void;
@@ -1126,6 +1175,11 @@ function BookingScreen(props: {
   onOpenNotifications: () => void;
   onFindDriver: () => void;
 }) {
+  const displayedFare = props.suggestedFare ? Math.round(props.suggestedFare.suggested_fare) : Number(props.price || 0);
+  const fareMeta = props.suggestedFare
+    ? `Admin rate · ${props.suggestedFare.distance_km} km · ${props.suggestedFare.eta_min} min · ${props.suggestedFare.vehicle_type}`
+    : 'Choose pickup and drop-off to calculate';
+
   return (
     <View style={styles.screen}>
       <DarkHeader
@@ -1184,10 +1238,10 @@ function BookingScreen(props: {
             <View>
               <Text style={styles.fareEyebrow}>Suggested fare</Text>
               <View style={styles.fareLine}>
-                <Text style={styles.fareNumber}>{props.price || '-'}</Text>
+                <Text style={styles.fareNumber}>{displayedFare || '-'}</Text>
                 <Text style={styles.currency}>MAD</Text>
               </View>
-              <Text style={styles.fareMeta}>about EUR 11.20 - 18 min - 9.4 km</Text>
+              <Text style={styles.fareMeta}>{fareMeta}</Text>
             </View>
             <View style={styles.fareShield}>
               <MaterialCommunityIcons name="shield-check-outline" size={34} color={colors.rust} />
@@ -1203,6 +1257,12 @@ function BookingScreen(props: {
               </View>
             ))}
           </View>
+          {props.suggestedFare ? (
+            <Pressable style={styles.useSuggestedButton} onPress={props.onUseSuggestedFare}>
+              <Ionicons name="sparkles-outline" size={17} color={colors.navy} />
+              <Text style={styles.useSuggestedText}>Use admin suggested price</Text>
+            </Pressable>
+          ) : null}
         </Card>
 
         <Card style={styles.priceInputCard}>
@@ -3375,6 +3435,23 @@ const styles = StyleSheet.create({
     color: colors.navy,
     fontSize: 12,
     fontWeight: '800',
+  },
+  useSuggestedButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#f7f1eb',
+    borderColor: colors.line,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  useSuggestedText: {
+    color: colors.navy,
+    fontSize: 13,
+    fontWeight: '900',
   },
   priceInputCard: {
     gap: 12,

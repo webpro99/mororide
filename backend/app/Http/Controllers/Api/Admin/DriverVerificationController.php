@@ -6,10 +6,14 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Admin\RejectDriverRequest;
 use App\Http\Requests\Admin\RequestDocumentRequest;
 use App\Http\Resources\DriverDocumentResource;
+use App\Models\DriverDocument;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\DriverVerificationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverVerificationController extends ApiController
 {
@@ -68,6 +72,41 @@ class DriverVerificationController extends ApiController
         $documentRequest = $this->verification->requestDocument($request->user(), $driver, $data['type'], $data['note'] ?? null);
 
         return $this->ok($documentRequest, 'Document requested', 201);
+    }
+
+    public function file(DriverDocument $document): StreamedResponse
+    {
+        abort_unless(Storage::exists($document->file_path), 404, 'Document file not found.');
+
+        $name = $document->original_name ?: basename($document->file_path);
+        $mime = Storage::mimeType($document->file_path) ?: 'application/octet-stream';
+
+        return Storage::response($document->file_path, $name, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="'.$name.'"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function reviewDocument(Request $request, DriverDocument $document)
+    {
+        $data = $request->validate([
+            'status' => ['required', Rule::in([
+                DriverDocument::STATUS_PENDING,
+                DriverDocument::STATUS_APPROVED,
+                DriverDocument::STATUS_REJECTED,
+            ])],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $document = $this->verification->reviewDocument(
+            $request->user(),
+            $document,
+            $data['status'],
+            $data['note'] ?? null
+        );
+
+        return $this->ok(new DriverDocumentResource($document), 'Document reviewed');
     }
 
     private function assertDriver(User $driver): void

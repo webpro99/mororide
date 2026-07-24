@@ -11,6 +11,7 @@ import {
   DriverDocument,
   DriverDocuments,
   DriverConversation,
+  FareEstimate,
   DriverProfile,
   Order,
   OrderOffer,
@@ -343,6 +344,10 @@ export function getRiderHistory() {
 
 export function getRiderConversations() {
   return request<RideConversation[] | Paged<RideConversation>>('/rider/conversations').then(asList);
+}
+
+export function estimateFare(payload: { distance_km: number; eta_min: number; pax?: number; vehicle_type?: string }) {
+  return request<FareEstimate>('/fares/estimate', { method: 'POST', body: payload });
 }
 
 export function getRiderOrder(orderId: number) {

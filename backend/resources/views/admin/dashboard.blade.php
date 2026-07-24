@@ -141,6 +141,19 @@
         .kv { display:grid; grid-template-columns: 130px 1fr; gap:6px 12px; font-size:13px; }
         .kv dt { color:var(--muted); font-weight:600; }
         .chk { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0ece3; }
+        .doc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; }
+        .doc-card { border:1px solid var(--line); border-radius:14px; background:#fff; overflow:hidden; display:flex; flex-direction:column; min-height:250px; }
+        .doc-preview { height:132px; background:#f4f1eb; display:grid; place-items:center; color:var(--muted); border-bottom:1px solid var(--line); overflow:hidden; }
+        .doc-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+        .doc-preview .doc-icon { font-size:34px; opacity:.75; }
+        .doc-body { padding:12px; display:grid; gap:8px; flex:1; }
+        .doc-title { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:900; color:var(--navy); }
+        .doc-meta { color:var(--muted); font-size:11.5px; line-height:1.45; overflow-wrap:anywhere; }
+        .doc-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:auto; }
+        .fare-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+        .fare-form .wide { grid-column:1 / -1; }
+        .fare-preview { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:12px; }
+        @media (max-width: 900px) { .fare-form { grid-template-columns:1fr; } .fare-form .wide { grid-column:auto; } }
         .msg { padding:10px 12px; border-radius:12px; background:#f5f2ec; margin-bottom:8px; }
         .msg .meta { font-size:11px; color:var(--muted); margin-bottom:3px; }
 
@@ -194,11 +207,21 @@
     <script>
     const TOKEN_KEY = 'mororide_admin_token';
     const DOC_TYPES = ['profile','vehicle_out','vehicle_in','id_front','id_back','license','tourism_agreement'];
+    const DOC_LABELS = {
+        profile: 'Profile photo',
+        vehicle_out: 'Vehicle exterior',
+        vehicle_in: 'Vehicle interior',
+        id_front: 'ID card front',
+        id_back: 'ID card back',
+        license: 'Driving license',
+        tourism_agreement: 'Tourism agreement',
+    };
 
     const SECTIONS = [
         { id:'dashboard', label:'Dashboard', icon:'📊' },
         { id:'users', label:'Users', icon:'👥' },
         { id:'drivers', label:'Drivers & Verification', icon:'🪪' },
+        { id:'fares', label:'Fare Pricing', icon:'🧮' },
         { id:'orders', label:'Orders', icon:'🚕' },
         { id:'wallets', label:'Wallets & Points', icon:'👛' },
         { id:'transactions', label:'Transactions & Revenue', icon:'💰' },
@@ -381,9 +404,78 @@
         try {
             const p = await api('GET', `/api/admin/drivers/${id}/documents`);
             const d = p.data;
-            const chk = d.checklist.map(c => `<div class="chk"><span>${esc(c.type)}</span>${statusBadge(c.status)}</div>`).join('');
+            const cards = d.checklist.map(c => {
+                const doc = c.document;
+                const label = DOC_LABELS[c.type] || c.type;
+                if (!doc) {
+                    return `<div class="doc-card">
+                      <div class="doc-preview"><span class="doc-icon">＋</span></div>
+                      <div class="doc-body">
+                        <div class="doc-title"><span>${esc(label)}</span>${statusBadge('missing')}</div>
+                        <div class="doc-meta">No file uploaded yet.</div>
+                        <div class="doc-actions"><button class="btn sm" onclick="requestDoc(${id}, '${esc(c.type)}')">Request</button></div>
+                      </div>
+                    </div>`;
+                }
+
+                return `<div class="doc-card">
+                  <div class="doc-preview" id="docPrev${doc.id}"><span class="doc-icon">${doc.is_pdf ? 'PDF' : '📄'}</span></div>
+                  <div class="doc-body">
+                    <div class="doc-title"><span>${esc(label)}</span>${statusBadge(doc.status)}</div>
+                    <div class="doc-meta">${esc(doc.file_name || doc.original_name || doc.file_path)}<br>Uploaded ${dt(doc.created_at)}${doc.note ? `<br><b>Note:</b> ${esc(doc.note)}` : ''}</div>
+                    <div class="doc-actions">
+                      <button class="btn sm" onclick="openDocument(${doc.id})">Open</button>
+                      <button class="btn sm ok" onclick="reviewDocument(${doc.id}, 'approved', ${id})">Approve</button>
+                      <button class="btn sm danger" onclick="reviewDocument(${doc.id}, 'rejected', ${id})">Reject</button>
+                      <button class="btn sm" onclick="requestDoc(${id}, '${esc(c.type)}')">Request new</button>
+                    </div>
+                  </div>
+                </div>`;
+            }).join('');
             infoModal(`Documents — ${esc(d.driver?.name||('#'+id))}`,
-                `<div>${chk}</div><p class="muted" style="margin-top:12px">All required uploaded: <b>${d.has_all_required?'Yes':'No'}</b></p>`);
+                `<div class="notice info"><b>${d.has_all_required ? 'All required files are uploaded.' : 'Some required files are still missing.'}</b><br>Open each document, then approve, reject, or request a replacement from the driver.</div>
+                 <div class="doc-grid">${cards}</div>`);
+            for (const c of d.checklist) {
+                if (c.document?.is_image) loadDocumentPreview(c.document.id);
+            }
+        } catch(e){ toast(e.message,'err'); }
+    };
+    window.fetchDocumentBlob = async (docId) => {
+        const res = await fetch(`/api/admin/documents/${docId}/file`, {
+            headers: { Authorization: `Bearer ${token()}`, Accept: '*/*' },
+        });
+        if (!res.ok) throw new Error('Could not open document');
+        return res.blob();
+    };
+    window.loadDocumentPreview = async (docId) => {
+        const box = document.getElementById(`docPrev${docId}`);
+        if (!box) return;
+        try {
+            const blob = await fetchDocumentBlob(docId);
+            const url = URL.createObjectURL(blob);
+            box.innerHTML = `<img src="${url}" alt="Document preview">`;
+        } catch (_) {
+            box.innerHTML = '<span class="doc-icon">📄</span>';
+        }
+    };
+    window.openDocument = async (docId) => {
+        try {
+            const blob = await fetchDocumentBlob(docId);
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener');
+        } catch(e){ toast(e.message,'err'); }
+    };
+    window.reviewDocument = async (docId, status, driverId) => {
+        let note = null;
+        if (status === 'rejected') {
+            const r = await formModal('Reject document', [{ name:'note', label:'Reason / note', type:'textarea', placeholder:'Tell the driver what must be fixed.' }], 'Reject');
+            if (!r) return;
+            note = r.note || null;
+        }
+        try {
+            await api('POST', `/api/admin/documents/${docId}/review`, { status, ...(note ? { note } : {}) });
+            toast(status === 'approved' ? 'Document approved' : 'Document rejected');
+            await viewDocs(driverId);
         } catch(e){ toast(e.message,'err'); }
     };
     window.approveDriver = async (id) => {
@@ -396,13 +488,90 @@
         try { await api('POST', `/api/admin/drivers/${id}/reject`, r); toast('Driver rejected'); render.drivers(); }
         catch(e){ toast(e.message,'err'); }
     };
-    window.requestDoc = async (id) => {
+    window.requestDoc = async (id, initialType='profile') => {
         const r = await formModal('Request a document', [
-            { name:'type', label:'Document', type:'select', options: DOC_TYPES.map(t=>({value:t,label:t})) },
+            { name:'type', label:'Document', type:'select', value:initialType, options: DOC_TYPES.map(t=>({value:t,label:DOC_LABELS[t] || t})) },
             { name:'note', label:'Note (optional)', type:'textarea' },
         ], 'Request');
         if (!r) return;
         try { await api('POST', `/api/admin/drivers/${id}/request-document`, r); toast('Document requested'); }
+        catch(e){ toast(e.message,'err'); }
+    };
+
+    render.fares = async () => {
+        loading();
+        const p = await api('GET', '/api/admin/fare-config');
+        const active = p.data.active || {};
+        const history = p.data.history || [];
+        const value = (key, fallback='') => esc(active[key] ?? fallback);
+        const rows = history.map(f => `
+            <tr>
+              <td>${f.id}</td><td>${money(f.base)}</td><td>${money(f.per_km)}</td><td>${money(f.per_min)}</td>
+              <td>${money(f.floor)}</td><td>${Number(f.platform_fee_pct || 0) * 100}%</td>
+              <td>${statusBadge(f.is_active ? 'active' : 'inactive')}</td><td>${dt(f.active_from || f.created_at)}</td>
+            </tr>`).join('');
+        view(`
+            <div class="stat-grid">
+              <div class="stat"><div class="k">Charge per KM</div><div class="v sm">${money(active.per_km)} ${esc(active.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Base fare</div><div class="v sm">${money(active.base)} ${esc(active.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Minimum fare</div><div class="v sm">${money(active.floor)} ${esc(active.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Platform fee</div><div class="v sm">${money(Number(active.platform_fee_pct || 0) * 100)}%</div></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head"><h2>Suggested rider fare formula</h2><button class="btn primary sm" onclick="saveFareConfig()">Save new pricing</button></div>
+              <div class="pad">
+                <div class="notice info"><b>How it works:</b> the rider sees this as the suggested fare after choosing pickup and drop-off. The rider can still change the offered price, and drivers can still accept that rider price or send a counter offer.</div>
+                <div class="fare-form" id="fareForm">
+                  <div class="field"><label>Currency</label><input id="fareCurrency" type="text" maxlength="3" value="${value('currency','MAD')}"></div>
+                  <div class="field"><label>Base fare</label><input id="fareBase" type="number" min="0" step="0.01" value="${value('base',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Charge per KM</label><input id="farePerKm" type="number" min="0" step="0.01" value="${value('per_km',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Charge per minute</label><input id="farePerMin" type="number" min="0" step="0.01" value="${value('per_min',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Extra passenger charge</label><input id="farePerPax" type="number" min="0" step="0.01" value="${value('per_pax',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Minimum fare floor</label><input id="fareFloor" type="number" min="0" step="0.01" value="${value('floor',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Platform fee %</label><input id="farePlatformPct" type="number" min="0" max="100" step="0.01" value="${money(Number(active.platform_fee_pct || 0) * 100)}"></div>
+                  <div class="field"><label>Sedan multiplier</label><input id="fareSedan" type="number" min="0.1" step="0.01" value="${value('sedan_multiplier',1)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Minivan multiplier</label><input id="fareMinivan" type="number" min="0.1" step="0.01" value="${value('minivan_multiplier',1.25)}"></div>
+                  <div class="field"><label>SUV multiplier</label><input id="fareSuv" type="number" min="0.1" step="0.01" value="${value('suv_multiplier',1.35)}"></div>
+                  <div class="field"><label>Minibus multiplier</label><input id="fareMinibus" type="number" min="0.1" step="0.01" value="${value('minibus_multiplier',1.75)}"></div>
+                  <div class="field"><label>Luxury multiplier</label><input id="fareLuxury" type="number" min="0.1" step="0.01" value="${value('luxury_multiplier',2)}"></div>
+                </div>
+                <div class="fare-preview">
+                  <div class="stat"><div class="k">Example trip</div><div class="v sm">9.4 km · 18 min · 2 pax</div></div>
+                  <div class="stat"><div class="k">Rider suggested fare</div><div class="v sm" id="farePreviewSuggested">—</div></div>
+                  <div class="stat"><div class="k">Driver receives offer</div><div class="v sm">Accept or counter</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel"><div class="panel-head"><h2>Pricing history</h2></div>
+              <div class="table-wrap"><table><thead><tr><th>ID</th><th>Base</th><th>Per KM</th><th>Per min</th><th>Floor</th><th>Fee</th><th>Status</th><th>Active from</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="8" class="empty">No fare config history.</td></tr>'}</tbody></table></div></div>`);
+        updateFarePreview();
+    };
+    window.fareNum = (id) => Number(document.getElementById(id)?.value || 0);
+    window.updateFarePreview = () => {
+        const subtotal = fareNum('fareBase') + (9.4 * fareNum('farePerKm')) + (18 * fareNum('farePerMin')) + fareNum('farePerPax');
+        const suggested = Math.max(fareNum('fareFloor'), subtotal * (fareNum('fareSedan') || 1));
+        const el = document.getElementById('farePreviewSuggested');
+        if (el) el.textContent = `${money(suggested)} ${document.getElementById('fareCurrency')?.value || 'MAD'}`;
+    };
+    window.saveFareConfig = async () => {
+        const body = {
+            currency: document.getElementById('fareCurrency').value.trim().toUpperCase() || 'MAD',
+            base: fareNum('fareBase'),
+            per_km: fareNum('farePerKm'),
+            per_min: fareNum('farePerMin'),
+            per_pax: fareNum('farePerPax'),
+            floor: fareNum('fareFloor'),
+            platform_fee_pct: fareNum('farePlatformPct') / 100,
+            sedan_multiplier: fareNum('fareSedan') || 1,
+            minivan_multiplier: fareNum('fareMinivan') || 1.25,
+            suv_multiplier: fareNum('fareSuv') || 1.35,
+            minibus_multiplier: fareNum('fareMinibus') || 1.75,
+            luxury_multiplier: fareNum('fareLuxury') || 2,
+        };
+        try { await api('POST', '/api/admin/fare-config', body); toast('Fare pricing saved'); await render.fares(); }
         catch(e){ toast(e.message,'err'); }
     };
 

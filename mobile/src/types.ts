@@ -90,6 +90,17 @@ export type RideConversation = {
   last_message: ChatMessage | null;
 };
 
+export type FareEstimate = {
+  currency: string;
+  distance_km: number;
+  eta_min: number;
+  pax: number;
+  vehicle_type: string;
+  suggested_fare: number;
+  platform_fee: number;
+  driver_net_estimate: number;
+};
+
 export type DriverConversation = RideConversation;
 
 export type DriverLocationEvent = {
