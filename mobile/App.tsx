@@ -182,11 +182,12 @@ function AppContent() {
       onBack={async () => { await AsyncStorage.removeItem(APP_MODE_KEY); setMode(null); }}
     />;
   }
+  const freeLaunch = Boolean(platformMode?.free_launch_enabled);
   const roleApp = mode === 'driver'
-    ? <DriverApp onSwitchRole={switchRole} />
+    ? <DriverApp onSwitchRole={switchRole} freeLaunch={freeLaunch} />
     : mode === 'concierge'
-      ? <ConciergeApp onSwitchRole={switchRole} />
-      : <RiderApp onSwitchRole={switchRole} />;
+      ? <ConciergeApp onSwitchRole={switchRole} freeLaunch={freeLaunch} />
+      : <RiderApp onSwitchRole={switchRole} freeLaunch={freeLaunch} />;
 
   return (
     <View style={styles.appShell}>
@@ -500,7 +501,7 @@ function SignUpField({ label, value, onChange, placeholder, secure, keyboardType
   );
 }
 
-function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
+function RiderApp({ onSwitchRole, freeLaunch = false }: { onSwitchRole: () => void; freeLaunch?: boolean }) {
   const [screen, setScreen] = useState<Screen>('booking');
   const [callShouldNotify, setCallShouldNotify] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -572,6 +573,10 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (freeLaunch && payment === 'card') setPayment('cash');
+  }, [freeLaunch, payment]);
 
   useEffect(() => {
     return subscribeToIncomingCalls(queueIncomingCall);
@@ -1120,6 +1125,7 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         setLuggage={setLuggage}
         payment={payment}
         setPayment={setPayment}
+        freeLaunch={freeLaunch}
         price={price}
         setPrice={(value) => {
           setPriceEdited(true);
@@ -1143,7 +1149,7 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         onFindDriver={findDriver}
       />
     );
-  }, [screen, catalog, currentOrder, selectedDriver, selectedOffer, offers, offersLoading, driverCoord, messages, chatLoading, selectedCityId, selectedVehicleKey, passengers, luggage, payment, price, suggestedFare, pickup, dropoff, loading, catalogLoading, notice, rating, rideHistory, conversations, archiveLoading, chatBackScreen]);
+  }, [screen, catalog, currentOrder, selectedDriver, selectedOffer, offers, offersLoading, driverCoord, messages, chatLoading, selectedCityId, selectedVehicleKey, passengers, luggage, payment, freeLaunch, price, suggestedFare, pickup, dropoff, loading, catalogLoading, notice, rating, rideHistory, conversations, archiveLoading, chatBackScreen]);
 
   function navigate(screenName: Screen) {
     setScreen(screenName);
@@ -1221,6 +1227,7 @@ function BookingScreen(props: {
   setLuggage: (value: number) => void;
   payment: 'cash' | 'card';
   setPayment: (value: 'cash' | 'card') => void;
+  freeLaunch: boolean;
   price: string;
   setPrice: (value: string) => void;
   suggestedFare: FareEstimate | null;
@@ -1379,9 +1386,12 @@ function BookingScreen(props: {
 
         <Text style={styles.fieldTitle}>Payment method</Text>
         <View style={styles.paymentBox}>
-          <PaymentChoice active={props.payment === 'cash'} title="Cash" subtitle="Pay the driver" icon="cash" onPress={() => props.setPayment('cash')} />
-          <PaymentChoice active={props.payment === 'card'} title="Card" subtitle="Pay securely" icon="card-outline" onPress={() => props.setPayment('card')} />
+          <PaymentChoice active={props.payment === 'cash'} title="Cash" subtitle={props.freeLaunch ? 'Card disabled during free launch' : 'Pay the driver'} icon="cash" onPress={() => props.setPayment('cash')} />
+          {!props.freeLaunch ? (
+            <PaymentChoice active={props.payment === 'card'} title="Card" subtitle="Pay securely" icon="card-outline" onPress={() => props.setPayment('card')} />
+          ) : null}
         </View>
+        {props.freeLaunch ? <Text style={styles.freeModeHint}>Billing off: card payments are disabled during the free launch period.</Text> : null}
 
         <PrimaryButton label="Find Driver" loading={props.loading} onPress={props.onFindDriver} />
         <SafetyText text="Your safety is our priority" />
@@ -3724,6 +3734,13 @@ const styles = StyleSheet.create({
   },
   paymentChoiceActive: {
     backgroundColor: colors.navy,
+  },
+  freeModeHint: {
+    color: colors.green,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 14,
+    marginTop: -6,
   },
   paymentIcon: {
     alignItems: 'center',

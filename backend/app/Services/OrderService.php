@@ -267,6 +267,7 @@ class OrderService
     private function createOrder(User $requester, ?User $concierge, string $source, array $data): Order
     {
         $order = DB::transaction(function () use ($requester, $concierge, $source, $data) {
+            $freeLaunch = $this->billingModeService->freeLaunchEnabled();
             try {
                 $estimate = $this->fareService->estimateFare(
                     (float) $data['distance_km'],
@@ -305,7 +306,7 @@ class OrderService
                 'distance_km' => $data['distance_km'],
                 'eta_min' => $data['eta_min'],
                 'offered_fare' => $offeredFare,
-                'payment_method' => $data['payment_method'] ?? 'cash',
+                'payment_method' => $freeLaunch ? 'cash' : ($data['payment_method'] ?? 'cash'),
                 'status' => Order::STATUS_SEARCHING,
                 'note' => $data['note'] ?? null,
                 'expires_at' => now()->addMinutes(10),

@@ -77,7 +77,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'profile', label: 'Profile', icon: 'person' },
 ];
 
-export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }) {
+export default function DriverApp({ onSwitchRole, freeLaunch = false }: { onSwitchRole: () => void; freeLaunch?: boolean }) {
   const [phase, setPhase] = useState<'loading' | 'ready'>('loading');
   const [tab, setTab] = useState<Tab>('drive');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -109,6 +109,10 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
   const [pointsConfig, setPointsConfig] = useState<PointsPurchaseConfig | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastNotificationIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (freeLaunch && tab === 'wallet') setTab('drive');
+  }, [freeLaunch, tab]);
 
   function shouldShowIncomingCall(orderId: number) {
     return callOrderId !== orderId && (!activeOrder?.id || activeOrder.id === orderId);
@@ -480,6 +484,7 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
           <DriveTab
             cities={cities} cityId={cityId} setCityId={selectCity} online={online} busy={busy}
             queue={queue} activeOrder={activeOrder} earnings={earnings} wallet={wallet}
+            freeLaunch={freeLaunch}
             onGoOnline={goOnline} onGoOffline={goOffline} onAccept={onAccept} onCounter={onCounter}
             onDecline={onDecline} onAdvance={advanceRide} onChat={() => activeOrder && setChatOrderId(activeOrder.id)}
             onCall={() => {
@@ -494,7 +499,7 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
         {tab === 'rides' && <RideHistoryTab orders={history} loading={archiveLoading} onRefresh={loadHistory} onOpenChat={setChatOrderId} />}
         {tab === 'messages' && <MessagesTab conversations={conversations} loading={archiveLoading} onRefresh={loadConversations} onOpenChat={setChatOrderId} />}
         {tab === 'verify' && <VerifyTab docs={docs} uploading={uploading} onUpload={pickAndUpload} onRefresh={loadDocs} />}
-        {tab === 'wallet' && <WalletTab wallet={wallet} pointsConfig={pointsConfig} onRefresh={refreshWallet} onBuyPoints={buyPoints} onSetupPayouts={setupPayouts} topUpBusy={topUpBusy} topUpStatus={topUpStatus} />}
+        {tab === 'wallet' && !freeLaunch && <WalletTab wallet={wallet} pointsConfig={pointsConfig} onRefresh={refreshWallet} onBuyPoints={buyPoints} onSetupPayouts={setupPayouts} topUpBusy={topUpBusy} topUpStatus={topUpStatus} />}
         {tab === 'profile' && <ProfileTab driver={driver} online={online} docs={docs} uploading={uploading} onUpload={pickAndUpload} onSwitchRole={onSwitchRole} />}
 
         <View style={{ height: 12 }} />
@@ -516,7 +521,7 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
             </View>
             <Text style={styles.menuSectionLabel}>DRIVER MENU</Text>
             <View style={styles.menuItems}>
-              {TABS.map((item) => {
+              {TABS.filter((item) => !(freeLaunch && item.id === 'wallet')).map((item) => {
                 const active = item.id === tab;
                 const needsVerification = item.id === 'verify' && docs && !docs.has_all_required;
                 const count = item.id === 'messages' ? messageBadge : 0;
@@ -588,11 +593,12 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
 function DriveTab(props: {
   cities: CatalogCity[]; cityId: number | null; setCityId: (id: number) => void; online: boolean; busy: boolean;
   queue: Order[]; activeOrder: Order | null; earnings: Order | null; wallet: Wallet | null;
+  freeLaunch: boolean;
   onGoOnline: () => void; onGoOffline: () => void; onAccept: (o: Order) => void; onCounter: (o: Order, a: number) => void;
   onDecline: (o: Order) => void; onAdvance: () => void; onChat: () => void; onCall: () => void; onClearEarnings: () => void; onRefresh: () => void;
   approvalState: string; onOpenVerification: () => void;
 }) {
-  const { cities, cityId, online, busy, queue, activeOrder, earnings, wallet } = props;
+  const { cities, cityId, online, busy, queue, activeOrder, earnings, wallet, freeLaunch } = props;
   return (
     <>
       {props.approvalState !== 'approved' ? (
@@ -606,11 +612,21 @@ function DriveTab(props: {
         </View>
       ) : null}
 
-      <View style={styles.walletRow}>
-        <Stat label="Points" value={fmt(wallet?.points_balance)} icon="star" />
-        <Stat label="Balance" value={`${fmt(wallet?.wallet_balance)}`} icon="cash" />
-        <Stat label="Free rides" value={String(wallet?.free_rides_remaining ?? 0)} icon="gift" />
-      </View>
+      {freeLaunch ? (
+        <View style={[styles.card, styles.freeWalletCard]}>
+          <Ionicons name="gift-outline" size={28} color={colors.success} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Billing off during launch</Text>
+            <Text style={styles.dim}>Wallet, points, and free-ride deductions are disabled. Complete rides without buying points.</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.walletRow}>
+          <Stat label="Points" value={fmt(wallet?.points_balance)} icon="star" />
+          <Stat label="Balance" value={`${fmt(wallet?.wallet_balance)}`} icon="cash" />
+          <Stat label="Free rides" value={String(wallet?.free_rides_remaining ?? 0)} icon="gift" />
+        </View>
+      )}
 
       <View style={styles.currentRideBar}>
         <View style={[styles.currentRideIcon, activeOrder && styles.currentRideIconOn]}><Ionicons name="navigate" size={18} color={activeOrder ? colors.white : colors.navy} /></View>
@@ -626,7 +642,7 @@ function DriveTab(props: {
           <Ionicons name="checkmark-circle" size={38} color={colors.success} />
           <Text style={styles.earnTitle}>Ride completed</Text>
           <Text style={styles.earnAmount}>{fmt(earnings.final_fare ?? earnings.offered_fare)} MAD</Text>
-          <Text style={styles.dim}>{earnings.payment_method === 'card' ? 'Card — net credited to wallet' : 'Cash — commission from points'}</Text>
+          <Text style={styles.dim}>{freeLaunch ? 'Free launch — no wallet or points deduction' : (earnings.payment_method === 'card' ? 'Card — net credited to wallet' : 'Cash — commission from points')}</Text>
           <Pressable style={[styles.btn, styles.btnPrimary, styles.wFull]} onPress={props.onClearEarnings}><Text style={styles.btnPrimaryText}>Back to requests</Text></Pressable>
         </View>
       ) : activeOrder ? (
@@ -1267,6 +1283,7 @@ const styles = StyleSheet.create({
   noticeText: { color: colors.rustDark, fontSize: 13, fontWeight: '600', flex: 1 },
 
   walletRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  freeWalletCard: { alignItems: 'center', backgroundColor: colors.greenSoft, borderColor: '#c9ead7', flexDirection: 'row' },
   signupCard: { alignItems: 'center', borderColor: colors.gold, flexDirection: 'row' },
   signupIcon: { alignItems: 'center', backgroundColor: '#fff3e6', borderRadius: 14, height: 46, justifyContent: 'center', width: 46 },
   verificationCard: { alignItems: 'center', backgroundColor: '#fff8ef', borderColor: colors.gold, flexDirection: 'row' },

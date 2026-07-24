@@ -62,7 +62,7 @@ const SCREEN_TITLES: Record<Screen, string> = {
   history: 'Ride History',
 };
 
-export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => void }) {
+export default function ConciergeApp({ onSwitchRole, freeLaunch = false }: { onSwitchRole: () => void; freeLaunch?: boolean }) {
   const [screen, setScreen] = useState<Screen>('book');
   const [menuOpen, setMenuOpen] = useState(false);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -113,6 +113,10 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (freeLaunch && payment === 'card') setPayment('cash');
+  }, [freeLaunch, payment]);
 
   // Realtime: offers, status, and chat for the active order.
   useEffect(() => {
@@ -383,11 +387,14 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
                 <Ionicons name="cash-outline" size={18} color={payment === 'cash' ? colors.white : colors.navy} />
                 <Text style={[styles.payText, payment === 'cash' && styles.payTextActive]}>Cash</Text>
               </Pressable>
-              <Pressable onPress={() => setPayment('card')} style={[styles.payChoice, payment === 'card' && styles.payChoiceActive]}>
-                <Ionicons name="card-outline" size={18} color={payment === 'card' ? colors.white : colors.navy} />
-                <Text style={[styles.payText, payment === 'card' && styles.payTextActive]}>Card</Text>
-              </Pressable>
+              {!freeLaunch ? (
+                <Pressable onPress={() => setPayment('card')} style={[styles.payChoice, payment === 'card' && styles.payChoiceActive]}>
+                  <Ionicons name="card-outline" size={18} color={payment === 'card' ? colors.white : colors.navy} />
+                  <Text style={[styles.payText, payment === 'card' && styles.payTextActive]}>Card</Text>
+                </Pressable>
+              ) : null}
             </View>
+            {freeLaunch ? <Text style={styles.freeModeHint}>Billing off: card payments are disabled during the free launch period.</Text> : null}
             <ActionButton label="Dispatch guest ride" onPress={submitBooking} disabled={loading} icon={<MaterialCommunityIcons name="bell-ring-outline" size={18} color={colors.white} />} />
           </Panel>
         ) : null}
@@ -625,6 +632,7 @@ const styles = StyleSheet.create({
   payChoiceActive: { backgroundColor: colors.navy, borderColor: colors.navy },
   payText: { color: colors.navy, fontWeight: '800' },
   payTextActive: { color: colors.white },
+  freeModeHint: { color: colors.success, fontSize: 12, fontWeight: '800', marginBottom: 12, marginTop: -4 },
   offer: { alignItems: 'center', backgroundColor: colors.cream, borderColor: colors.line, borderRadius: radius.md, borderWidth: 1, flexDirection: 'row', gap: 10, marginBottom: 10, padding: 12 },
   offerName: { color: colors.ink, fontSize: 15, fontWeight: '900' },
   offerMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },

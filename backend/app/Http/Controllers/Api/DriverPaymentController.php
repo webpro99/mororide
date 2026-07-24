@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Requests\Payments\CreatePointsTopupRequest;
+use App\Services\BillingModeService;
 use App\Services\PaymentService;
 use App\Services\PaymentConfigurationService;
 use Illuminate\Http\Request;
@@ -10,8 +11,15 @@ use RuntimeException;
 
 class DriverPaymentController extends ApiController
 {
-    public function pointsConfig(PaymentConfigurationService $configuration)
+    public function pointsConfig(PaymentConfigurationService $configuration, BillingModeService $billingMode)
     {
+        if ($billingMode->freeLaunchEnabled()) {
+            return $this->ok(array_merge($configuration->pointsPurchaseConfig(), [
+                'available' => false,
+                'disabled_reason' => 'Wallet and points are disabled while free launch mode is active.',
+            ]));
+        }
+
         return $this->ok($configuration->pointsPurchaseConfig());
     }
 

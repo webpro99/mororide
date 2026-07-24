@@ -22,10 +22,15 @@ class PaymentService
         private PaymentGateway $gateway,
         private WalletService $walletService,
         private PaymentConfigurationService $configuration,
+        private BillingModeService $billingModeService,
     ) {}
 
     public function createRidePayment(User $user, Order $order): array
     {
+        if ($this->billingModeService->freeLaunchEnabled()) {
+            throw new RuntimeException('Card payments are disabled while free launch mode is active.');
+        }
+
         $this->ensureEnabled();
 
         if ($order->payment_method !== 'card') {
@@ -51,6 +56,10 @@ class PaymentService
 
     public function createPointsTopup(User $driver, float $amount, string $clientIdempotencyKey): array
     {
+        if ($this->billingModeService->freeLaunchEnabled()) {
+            throw new RuntimeException('Driver wallet top-ups are disabled while free launch mode is active.');
+        }
+
         $this->ensureEnabled();
 
         if (! $driver->isRole('driver')) {
