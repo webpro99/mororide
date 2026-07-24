@@ -2083,11 +2083,15 @@ function NotificationPanel({
                 onPress={() => incomingCall && onOpenCall(orderId)}
                 style={[styles.notificationCard, !notification.read_at && styles.notificationCardUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}
               >
-                <View style={[styles.notificationIcon, { backgroundColor: incomingCall ? colors.green : tone.iconBg }]}>
-                  <Ionicons name={(incomingCall ? 'call' : notificationIcon(notification.type)) as never} size={20} color={colors.white} />
+                <View style={[styles.notificationAccent, { backgroundColor: incomingCall ? colors.green : tone.fg }]} />
+                <View style={[styles.notificationIcon, { backgroundColor: incomingCall ? colors.greenSoft : tone.soft }]}>
+                  <Ionicons name={(incomingCall ? 'call' : notificationIcon(notification.type)) as never} size={19} color={incomingCall ? colors.green : tone.fg} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.notificationPill, { color: tone.fg }]}>{incomingCall ? 'Incoming call' : tone.label}</Text>
+                  <View style={styles.notificationTopLine}>
+                    <Text style={[styles.notificationPill, { color: tone.fg }]}>{incomingCall ? 'Incoming call' : tone.label}</Text>
+                    {!notification.read_at ? <View style={[styles.notificationUnreadDot, { backgroundColor: tone.fg }]} /> : null}
+                  </View>
                   <Text style={styles.notificationCardTitle}>{notification.title}</Text>
                   <Text style={styles.notificationCardBody}>{notification.body}</Text>
                   <Text style={[styles.notificationType, { color: tone.fg }]}>{notification.type.replace(/_/g, ' ')}</Text>
@@ -2117,18 +2121,18 @@ function notificationIcon(type: string) {
 
 function notificationTone(type: string) {
   if (type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
-    return { bg: colors.greenSoft, border: '#cfe8da', fg: colors.green, iconBg: colors.green, label: 'Approved' };
+    return { bg: colors.card, border: colors.line, soft: colors.greenSoft, fg: colors.green, label: 'Approved' };
   }
   if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
-    return { bg: '#fff1ef', border: '#f0c8c1', fg: colors.rustDark, iconBg: colors.rustDark, label: 'Attention' };
+    return { bg: colors.card, border: colors.line, soft: '#fff1ef', fg: colors.rustDark, label: 'Attention' };
   }
   if (type.includes('document') || type.includes('verification') || type.includes('driver')) {
-    return { bg: '#fff8ef', border: '#efd8bb', fg: colors.rust, iconBg: colors.rust, label: 'Verification' };
+    return { bg: colors.card, border: colors.line, soft: '#fff8ef', fg: colors.rust, label: 'Verification' };
   }
   if (type.includes('chat') || type.includes('message') || type.includes('call')) {
-    return { bg: '#eef6fb', border: '#d6e9f5', fg: colors.navy, iconBg: colors.navy, label: 'Message' };
+    return { bg: colors.card, border: colors.line, soft: '#eef6fb', fg: colors.navy, label: 'Message' };
   }
-  return { bg: colors.card, border: colors.line, fg: colors.rust, iconBg: colors.navy, label: 'Activity' };
+  return { bg: colors.card, border: colors.line, soft: '#f6f2ec', fg: colors.rust, label: 'Activity' };
 }
 
 function ProfileHeader({ onBack }: { onBack: () => void }) {
@@ -2771,9 +2775,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(5, 18, 32, .34)',
   },
   notificationPanel: {
-    backgroundColor: colors.cream,
+    backgroundColor: '#fffefa',
     borderColor: colors.line,
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: 1,
     maxHeight: '72%',
     maxWidth: 392,
@@ -2816,26 +2820,38 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     backgroundColor: colors.card,
     borderColor: colors.line,
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    padding: 13,
+    overflow: 'hidden',
+    padding: 14,
+    paddingLeft: 16,
+    position: 'relative',
   },
   notificationCardUnread: {
+    backgroundColor: '#fffdf8',
+    borderColor: '#ecd8b8',
     shadowColor: '#7a431f',
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 3,
   },
+  notificationAccent: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    width: 4,
+  },
   notificationIcon: {
     alignItems: 'center',
     backgroundColor: colors.navy,
-    borderRadius: 12,
-    height: 40,
+    borderRadius: 15,
+    height: 42,
     justifyContent: 'center',
-    width: 40,
+    width: 42,
   },
   notificationCardTitle: {
     color: colors.navy,
@@ -2846,8 +2862,18 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 1,
-    marginBottom: 4,
     textTransform: 'uppercase',
+  },
+  notificationTopLine: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    marginBottom: 5,
+  },
+  notificationUnreadDot: {
+    borderRadius: 4,
+    height: 8,
+    width: 8,
   },
   notificationCardBody: {
     color: colors.muted,

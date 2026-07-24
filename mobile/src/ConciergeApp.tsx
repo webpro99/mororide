@@ -589,11 +589,15 @@ function ConciergeNotifications({ notifications, onClose }: { notifications: App
             const tone = conciergeNotificationTone(item.type);
             return (
             <View key={item.id} style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}>
-              <View style={[styles.notificationIcon, { backgroundColor: tone.iconBg }]}>
-                <Ionicons name={conciergeNotificationIcon(item.type) as never} size={20} color={colors.white} />
+              <View style={[styles.notificationAccent, { backgroundColor: tone.fg }]} />
+              <View style={[styles.notificationIcon, { backgroundColor: tone.soft }]}>
+                <Ionicons name={conciergeNotificationIcon(item.type) as never} size={19} color={tone.fg} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.notificationItemLabel, { color: tone.fg }]}>{tone.label}</Text>
+                <View style={styles.notificationTopLine}>
+                  <Text style={[styles.notificationItemLabel, { color: tone.fg }]}>{tone.label}</Text>
+                  {!item.read_at ? <View style={[styles.notificationUnreadDot, { backgroundColor: tone.fg }]} /> : null}
+                </View>
                 <Text style={styles.notificationItemTitle}>{item.title}</Text>
                 <Text style={styles.notificationItemBody}>{item.body}</Text>
                 <Text style={[styles.notificationItemMeta, { color: tone.fg }]}>{item.type.replace(/_/g, ' ')}</Text>
@@ -618,18 +622,18 @@ function conciergeNotificationIcon(type: string) {
 
 function conciergeNotificationTone(type: string) {
   if (type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
-    return { bg: colors.greenSoft, border: '#cfe8da', fg: colors.success, iconBg: colors.success, label: 'Success' };
+    return { bg: colors.white, border: colors.line, soft: colors.greenSoft, fg: colors.success, label: 'Success' };
   }
   if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
-    return { bg: '#fff1ef', border: '#f0c8c1', fg: colors.rustDark, iconBg: colors.rustDark, label: 'Attention' };
+    return { bg: colors.white, border: colors.line, soft: '#fff1ef', fg: colors.rustDark, label: 'Attention' };
   }
   if (type.includes('chat') || type.includes('message') || type.includes('call')) {
-    return { bg: '#eef6fb', border: '#d6e9f5', fg: colors.navy, iconBg: colors.navy, label: 'Message' };
+    return { bg: colors.white, border: colors.line, soft: '#eef6fb', fg: colors.navy, label: 'Message' };
   }
   if (type.includes('ride') || type.includes('offer')) {
-    return { bg: '#fff8ef', border: '#efd8bb', fg: colors.rust, iconBg: colors.rust, label: 'Ride update' };
+    return { bg: colors.white, border: colors.line, soft: '#fff8ef', fg: colors.rust, label: 'Ride update' };
   }
-  return { bg: colors.white, border: colors.line, fg: colors.rust, iconBg: colors.navy, label: 'Activity' };
+  return { bg: colors.white, border: colors.line, soft: '#f6f2ec', fg: colors.rust, label: 'Activity' };
 }
 
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -790,15 +794,18 @@ const styles = StyleSheet.create({
   menuFooterMark: { height: 30, width: 30 },
   menuFooterText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   notificationLayer: { ...StyleSheet.absoluteFillObject, alignItems: 'flex-end', backgroundColor: 'rgba(8,20,38,.38)', justifyContent: 'flex-start', paddingHorizontal: 12, paddingTop: 88, zIndex: 100 },
-  notificationPanel: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 24, borderWidth: 1, elevation: 18, maxHeight: '74%', maxWidth: 392, padding: 16, width: '92%' },
+  notificationPanel: { backgroundColor: '#fffefa', borderColor: colors.line, borderRadius: 26, borderWidth: 1, elevation: 18, maxHeight: '74%', maxWidth: 392, padding: 16, width: '92%' },
   notificationHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
   notificationTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
   notificationList: { gap: 9, paddingBottom: 8 },
   notificationEmpty: { alignItems: 'center', gap: 8, paddingVertical: 24 },
-  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, padding: 12 },
-  notificationItemUnread: { backgroundColor: '#fff7ed', borderColor: colors.gold },
-  notificationIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
-  notificationItemLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' },
+  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, overflow: 'hidden', padding: 14, paddingLeft: 16, position: 'relative' },
+  notificationItemUnread: { backgroundColor: '#fffdf8', borderColor: '#ecd8b8', elevation: 3, shadowColor: '#7a431f', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  notificationAccent: { bottom: 0, left: 0, position: 'absolute', top: 0, width: 4 },
+  notificationIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 15, height: 42, justifyContent: 'center', width: 42 },
+  notificationTopLine: { alignItems: 'center', flexDirection: 'row', gap: 7, marginBottom: 5 },
+  notificationUnreadDot: { borderRadius: 4, height: 8, width: 8 },
+  notificationItemLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' },
   notificationItemTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
   notificationItemBody: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
   notificationItemMeta: { color: colors.rust, fontSize: 9, fontWeight: '900', letterSpacing: .7, marginTop: 6, textTransform: 'uppercase' },
