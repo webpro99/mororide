@@ -121,7 +121,9 @@ function AppContent() {
     const refresh = () => {
       getPlatformMode()
         .then((nextMode) => {
-          if (active) setPlatformMode(nextMode);
+          if (!active) return;
+          setPlatformMode(nextMode);
+          if (nextMode.free_launch_enabled) setFreeBannerHidden(false);
         })
         .catch(() => undefined);
     };
@@ -2544,6 +2546,7 @@ const styles = StyleSheet.create({
   },
   freeLaunchWrap: {
     alignItems: 'center',
+    elevation: 40,
     left: 0,
     paddingHorizontal: 14,
     position: 'absolute',
@@ -2566,6 +2569,7 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     width: '100%',
     ...shadow,
+    elevation: 40,
   },
   freeLaunchStar: {
     alignItems: 'center',
