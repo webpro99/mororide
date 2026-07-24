@@ -13,7 +13,8 @@ class DriverVerificationService
 {
     public function __construct(
         private AuditLogService $auditLogService,
-        private NotificationService $notificationService
+        private NotificationService $notificationService,
+        private WalletService $walletService
     ) {}
 
     /**
@@ -66,6 +67,7 @@ class DriverVerificationService
                 ]);
 
             $this->auditLogService->record($admin, 'driver_approved', $driver, ['approval_state' => $old], ['approval_state' => 'approved']);
+            $this->walletService->grantApprovalFreeRides($driver);
             $this->notificationService->push($driver, 'driver_approved', 'Driver profile approved', 'Your documents are approved. You can now go online and receive ride requests.', ['screen' => 'driver']);
 
             return $driver->fresh('driverProfile');

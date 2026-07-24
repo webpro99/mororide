@@ -99,6 +99,36 @@ class WalletService
         );
     }
 
+    public function grantApprovalFreeRides(User $driver, int $rides = 2): Wallet
+    {
+        $wallet = $this->createWalletForUser($driver);
+
+        $alreadyGranted = WalletLedgerEntry::where('user_id', $driver->id)
+            ->where('entry_type', 'driver_approval_free_rides')
+            ->exists();
+
+        if ($alreadyGranted) {
+            return $wallet;
+        }
+
+        $wallet->free_rides_remaining += $rides;
+        $wallet->save();
+
+        $this->writeLedgerEntry(
+            $wallet,
+            null,
+            null,
+            'credit',
+            'driver_approval_free_rides',
+            0,
+            0,
+            'Two free rides granted after driver approval.',
+            ['free_rides_delta' => $rides, 'free_rides_after' => $wallet->free_rides_remaining]
+        );
+
+        return $wallet;
+    }
+
     /**
      * Admin manual adjustment of points and/or wallet balance. Deltas may be
      * negative to debit. Always writes a ledger entry for auditability.
