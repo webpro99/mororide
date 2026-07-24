@@ -353,6 +353,13 @@ export function getRiderOffers(orderId: number) {
   return request<OrderOffer[]>(`/rider/orders/${orderId}/offers`);
 }
 
+export function getVoiceCallToken(orderId: number, notify = true) {
+  return request<{ server_url: string; participant_token: string; room_name: string; order_id: number }>(
+    `/orders/${orderId}/voice-call/token`,
+    { method: 'POST', body: { notify } },
+  );
+}
+
 export function chooseRiderOffer(orderId: number, offerId: number) {
   return request<Order>(`/rider/orders/${orderId}/choose-driver`, {
     method: 'POST',

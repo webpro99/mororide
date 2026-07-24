@@ -5,16 +5,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   acceptOrder,
   counterOrder,
@@ -35,7 +36,6 @@ import {
   getOrderMessages,
   getWallet,
   idempotencyKey,
-  logout,
   markOrder,
   markNotificationRead,
   restoreSession,
@@ -45,9 +45,11 @@ import {
 } from './api';
 import { watchCoord } from './location';
 import { createRealtimeClient } from './realtime';
-import { registerForPush, unregisterPush } from './push';
+import { IncomingCallNotice, registerForPush, subscribeToIncomingCalls, unregisterPush } from './push';
 import { payWithCardSheet } from './stripeCard';
-import { CatalogCity, ChatMessage, DocChecklistItem, DriverConversation, DriverDocuments, Order, PointsPurchaseConfig, Wallet } from './types';
+import { VoiceCallScreen } from './VoiceCallScreen';
+import { IncomingCallPrompt } from './IncomingCallPrompt';
+import { AppNotification, CatalogCity, ChatMessage, DocChecklistItem, DriverConversation, DriverDocuments, Order, PointsPurchaseConfig, Wallet } from './types';
 import { colors, radius, shadow } from './theme';
 
 const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
@@ -78,6 +80,11 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }) {
   const [phase, setPhase] = useState<'loading' | 'ready'>('loading');
   const [tab, setTab] = useState<Tab>('drive');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationBadge, setNotificationBadge] = useState(0);
+  const [incomingCall, setIncomingCall] = useState<(IncomingCallNotice & { notificationId?: number }) | null>(null);
   const [driver, setDriver] = useState<{ name: string; email: string; approvalState: string }>({ name: 'Driver', email: '', approvalState: 'incomplete' });
   const [cities, setCities] = useState<CatalogCity[]>([]);
   const [cityId, setCityId] = useState<number | null>(null);
@@ -89,6 +96,8 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [earnings, setEarnings] = useState<Order | null>(null);
   const [chatOrderId, setChatOrderId] = useState<number | null>(null);
+  const [callOrderId, setCallOrderId] = useState<number | null>(null);
+  const [callShouldNotify, setCallShouldNotify] = useState(true);
   const [history, setHistory] = useState<Order[]>([]);
   const [conversations, setConversations] = useState<DriverConversation[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
@@ -101,13 +110,28 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastNotificationIdRef = useRef<number | null>(null);
 
+  function shouldShowIncomingCall(orderId: number) {
+    return callOrderId !== orderId && (!activeOrder?.id || activeOrder.id === orderId);
+  }
+
+  function queueIncomingCall(call: IncomingCallNotice & { notificationId?: number }) {
+    if (!shouldShowIncomingCall(call.orderId)) return;
+    setIncomingCall((current) => current?.orderId === call.orderId && current.notificationId === call.notificationId ? current : call);
+  }
+
   const flash = useCallback((m: string) => {
     setNotice(m);
     setTimeout(() => setNotice((c) => (c === m ? null : c)), 4000);
   }, []);
   const refreshWallet = useCallback(async () => { try { setWallet(await getWallet()); } catch { /* best effort */ } }, []);
   const refreshPointsConfig = useCallback(async () => { try { setPointsConfig(await getPointsPurchaseConfig()); } catch { /* best effort */ } }, []);
-  const loadDocs = useCallback(async () => { try { setDocs(await getDriverDocuments()); } catch { /* best effort */ } }, []);
+  const loadDocs = useCallback(async () => {
+    try {
+      const fresh = await getDriverDocuments();
+      setDocs(fresh);
+      setDriver((current) => ({ ...current, approvalState: fresh.approval_state || current.approvalState }));
+    } catch { /* best effort */ }
+  }, []);
   const loadHistory = useCallback(async () => {
     setArchiveLoading(true);
     try { setHistory(await getDriverHistory()); }
@@ -161,6 +185,11 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
     return () => { on = false; };
   }, [flash, refreshWallet, refreshPointsConfig, loadDocs]);
 
+  useEffect(() => {
+    if (phase !== 'ready') return undefined;
+    return subscribeToIncomingCalls(queueIncomingCall);
+  }, [phase, activeOrder?.id, callOrderId]);
+
   const loadQueue = useCallback(async () => {
     try { setQueue(await getDriverOrders()); }
     catch (e) { setQueue([]); if (e instanceof Error && !e.message.toLowerCase().includes('online')) flash(e.message); }
@@ -203,6 +232,24 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
       try {
         const all = await getNotifications();
         if (!active) return;
+        setNotifications(all);
+        setNotificationBadge(all.filter((item) => !item.read_at).length);
+        const incoming = all.find((item) => {
+          const orderId = Number(item.data?.order_id);
+          return item.type === 'incoming_voice_call' && !item.read_at && Number.isFinite(orderId) && shouldShowIncomingCall(orderId);
+        });
+        if (incoming) {
+          queueIncomingCall({
+            orderId: Number(incoming.data?.order_id),
+            title: incoming.title,
+            body: incoming.body,
+            callerId: Number(incoming.data?.caller_id) || null,
+            notificationId: incoming.id,
+          });
+        }
+        if (all.some((item) => item.type === 'driver_approved' && !item.read_at)) {
+          await loadDocs();
+        }
         const unread = all.filter((item) => item.type === 'chat_message' && !item.read_at);
         const latest = all.find((item) => item.type === 'chat_message');
         if (latest && lastNotificationIdRef.current !== null && latest.id > lastNotificationIdRef.current) {
@@ -221,7 +268,7 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
     refresh();
     const id = setInterval(refresh, 4000);
     return () => { active = false; clearInterval(id); };
-  }, [phase, tab, chatOrderId, flash]);
+  }, [phase, tab, chatOrderId, flash, loadDocs]);
 
   // Publish real device GPS to the backend while online (foreground). The
   // watcher throttles to ~8s / 25m; failures are ignored best-effort.
@@ -253,7 +300,15 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
 
       if (result.status === 'completed') {
         setTopUpStatus(`Payment received — ${intent.points ?? 'your'} points appear once Stripe confirms.`);
-        setTimeout(() => { refreshWallet(); }, 2500);
+        // Stripe confirms the top-up asynchronously through the backend
+        // webhook. Refresh more than once so a slow webhook does not leave the
+        // old balance on screen until the driver manually reloads the wallet.
+        void (async () => {
+          for (let attempt = 0; attempt < 8; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 800 : 2000));
+            await refreshWallet();
+          }
+        })();
       } else if (result.status === 'canceled') {
         setTopUpStatus('Payment canceled.');
       } else {
@@ -349,6 +404,30 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
     finally { setUploading(null); }
   }
 
+  async function answerIncomingCall() {
+    if (!incomingCall) return;
+    const orderId = incomingCall.orderId;
+    const notificationId = incomingCall.notificationId;
+    setIncomingCall(null);
+    if (notificationId) {
+      markNotificationRead(notificationId).catch(() => null);
+    }
+    if (activeOrder?.id !== orderId) {
+      await loadCurrentOrder();
+    }
+    setCallShouldNotify(false);
+    setCallOrderId(orderId);
+  }
+
+  function declineIncomingCall() {
+    if (incomingCall?.notificationId) {
+      markNotificationRead(incomingCall.notificationId).catch(() => null);
+      setNotifications((current) => current.map((item) => item.id === incomingCall.notificationId ? { ...item, read_at: item.read_at ?? new Date().toISOString() } : item));
+      setNotificationBadge((count) => Math.max(0, count - 1));
+    }
+    setIncomingCall(null);
+  }
+
   if (phase === 'loading') {
     return (
       <SafeAreaView style={styles.page}>
@@ -365,24 +444,33 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.phone}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.sand} />
       {/* Header */}
       <View style={styles.header}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu" onPress={() => setMenuOpen(true)} style={styles.menuButton}>
+          <Ionicons name="menu" size={25} color={colors.white} />
+        </Pressable>
         <View style={styles.headerIdentity}>
-          <View style={styles.headerAvatar}><Text style={styles.headerAvatarText}>{driver.name.charAt(0).toUpperCase()}</Text></View>
           <View>
             <Text style={styles.eyebrow}>MORORIDE DRIVER</Text>
             <Text style={styles.title}>{tab === 'drive' ? `Hi, ${driver.name.split(' ')[0]}` : headerTitle}</Text>
           </View>
         </View>
-        {tab === 'drive' ? (
-          <View style={[styles.pill, online ? styles.pillOn : styles.pillOff]}>
-            <View style={[styles.dot, { backgroundColor: online ? colors.success : colors.faded }]} />
-            <Text style={[styles.pillText, { color: online ? colors.success : colors.muted }]}>{online ? 'Online' : 'Offline'}</Text>
-          </View>
-        ) : (
-          <Image source={require('../assets/moro_logo_mark_transparent.png')} style={styles.headerMark} resizeMode="contain" />
-        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open notifications"
+          onPress={async () => {
+            setNotificationsOpen(true);
+            const unread = notifications.filter((item) => !item.read_at);
+            await Promise.all(unread.map((item) => markNotificationRead(item.id).catch(() => null)));
+            setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })));
+            setNotificationBadge(0);
+          }}
+          style={styles.headerBell}
+        >
+          <Ionicons name="notifications-outline" size={22} color={colors.white} />
+          {notificationBadge > 0 ? <View style={styles.headerBellBadge}><Text style={styles.headerBellBadgeText}>{notificationBadge > 9 ? '9+' : notificationBadge}</Text></View> : null}
+        </Pressable>
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -394,6 +482,11 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
             queue={queue} activeOrder={activeOrder} earnings={earnings} wallet={wallet}
             onGoOnline={goOnline} onGoOffline={goOffline} onAccept={onAccept} onCounter={onCounter}
             onDecline={onDecline} onAdvance={advanceRide} onChat={() => activeOrder && setChatOrderId(activeOrder.id)}
+            onCall={() => {
+              if (!activeOrder) return;
+              setCallShouldNotify(true);
+              setCallOrderId(activeOrder.id);
+            }}
             onClearEarnings={() => setEarnings(null)} onRefresh={loadQueue}
             approvalState={driver.approvalState} onOpenVerification={() => setTab('verify')}
           />
@@ -402,30 +495,90 @@ export default function DriverApp({ onSwitchRole }: { onSwitchRole: () => void }
         {tab === 'messages' && <MessagesTab conversations={conversations} loading={archiveLoading} onRefresh={loadConversations} onOpenChat={setChatOrderId} />}
         {tab === 'verify' && <VerifyTab docs={docs} uploading={uploading} onUpload={pickAndUpload} onRefresh={loadDocs} />}
         {tab === 'wallet' && <WalletTab wallet={wallet} pointsConfig={pointsConfig} onRefresh={refreshWallet} onBuyPoints={buyPoints} onSetupPayouts={setupPayouts} topUpBusy={topUpBusy} topUpStatus={topUpStatus} />}
-        {tab === 'profile' && <ProfileTab driver={driver} online={online} onSwitchRole={onSwitchRole} />}
+        {tab === 'profile' && <ProfileTab driver={driver} online={online} docs={docs} uploading={uploading} onUpload={pickAndUpload} onSwitchRole={onSwitchRole} />}
 
-        <View style={{ height: 90 }} />
+        <View style={{ height: 12 }} />
       </ScrollView>
 
-      {/* Bottom tab bar */}
-      <View style={styles.tabbar}>
-        {TABS.map((t) => {
-          const active = t.id === tab;
-          const badge = t.id === 'verify' && docs && !docs.has_all_required;
-          const count = t.id === 'messages' ? messageBadge : 0;
-          return (
-            <Pressable key={t.id} style={styles.tabItem} onPress={() => setTab(t.id)}>
-              <View>
-                <Ionicons name={(active ? t.icon : `${t.icon}-outline`) as never} size={23} color={active ? colors.navy : colors.muted} />
-                {count > 0 ? <View style={styles.tabCount}><Text style={styles.tabCountText}>{count > 9 ? '9+' : count}</Text></View> : badge ? <View style={styles.tabBadge} /> : null}
+      {menuOpen ? (
+        <View style={styles.menuLayer}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close navigation menu" onPress={() => setMenuOpen(false)} style={styles.menuBackdrop} />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuHead}>
+              <View style={styles.menuAvatar}><Text style={styles.menuAvatarText}>{driver.name.charAt(0).toUpperCase()}</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuName}>{driver.name}</Text>
+                <Text style={styles.menuEmail}>{driver.email}</Text>
               </View>
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{t.label}</Text>
+              <Pressable onPress={() => setMenuOpen(false)} style={styles.menuClose}>
+                <Ionicons name="close" size={22} color={colors.navy} />
+              </Pressable>
+            </View>
+            <Text style={styles.menuSectionLabel}>DRIVER MENU</Text>
+            <View style={styles.menuItems}>
+              {TABS.map((item) => {
+                const active = item.id === tab;
+                const needsVerification = item.id === 'verify' && docs && !docs.has_all_required;
+                const count = item.id === 'messages' ? messageBadge : 0;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => { setTab(item.id); setMenuOpen(false); }}
+                    style={[styles.menuItem, active && styles.menuItemActive]}
+                  >
+                    <View style={[styles.menuItemIcon, active && styles.menuItemIconActive]}>
+                      <Ionicons name={(active ? item.icon : `${item.icon}-outline`) as never} size={20} color={active ? colors.white : colors.navy} />
+                    </View>
+                    <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{item.label}</Text>
+                    {count > 0 ? <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{count > 9 ? '9+' : count}</Text></View> : needsVerification ? <View style={styles.menuDot} /> : null}
+                    <Ionicons name="chevron-forward" size={18} color={active ? 'rgba(255,255,255,.7)' : colors.faded} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Log out"
+              onPress={() => { setMenuOpen(false); onSwitchRole(); }}
+              style={styles.menuLogout}
+            >
+              <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+              <Text style={styles.menuLogoutText}>Log out</Text>
             </Pressable>
-          );
-        })}
-      </View>
+            <View style={styles.menuFooter}>
+              <Image source={require('../assets/moro_logo_mark_transparent.png')} style={styles.menuMark} resizeMode="contain" />
+              <Text style={styles.menuFooterText}>MoroRide Driver</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+      {notificationsOpen ? (
+        <DriverNotifications
+          notifications={notifications}
+          onClose={() => setNotificationsOpen(false)}
+          onOpenCall={(orderId) => {
+            setNotificationsOpen(false);
+            setCallShouldNotify(false);
+            setCallOrderId(orderId);
+          }}
+        />
+      ) : null}
 
       {chatOrderId ? <ChatOverlay orderId={chatOrderId} onClose={() => setChatOrderId(null)} /> : null}
+      {callOrderId ? (
+        <View style={styles.callOverlay}>
+          <VoiceCallScreen orderId={callOrderId} peerLabel="Your rider" notify={callShouldNotify} onEnd={() => setCallOrderId(null)} />
+        </View>
+      ) : null}
+      {incomingCall ? (
+        <IncomingCallPrompt
+          title={incomingCall.title}
+          body={incomingCall.body}
+          peerLabel="Your rider"
+          onAnswer={answerIncomingCall}
+          onDecline={declineIncomingCall}
+        />
+      ) : null}
       </View>
     </SafeAreaView>
   );
@@ -436,7 +589,7 @@ function DriveTab(props: {
   cities: CatalogCity[]; cityId: number | null; setCityId: (id: number) => void; online: boolean; busy: boolean;
   queue: Order[]; activeOrder: Order | null; earnings: Order | null; wallet: Wallet | null;
   onGoOnline: () => void; onGoOffline: () => void; onAccept: (o: Order) => void; onCounter: (o: Order, a: number) => void;
-  onDecline: (o: Order) => void; onAdvance: () => void; onChat: () => void; onClearEarnings: () => void; onRefresh: () => void;
+  onDecline: (o: Order) => void; onAdvance: () => void; onChat: () => void; onCall: () => void; onClearEarnings: () => void; onRefresh: () => void;
   approvalState: string; onOpenVerification: () => void;
 }) {
   const { cities, cityId, online, busy, queue, activeOrder, earnings, wallet } = props;
@@ -477,7 +630,7 @@ function DriveTab(props: {
           <Pressable style={[styles.btn, styles.btnPrimary, styles.wFull]} onPress={props.onClearEarnings}><Text style={styles.btnPrimaryText}>Back to requests</Text></Pressable>
         </View>
       ) : activeOrder ? (
-        <RidePanel order={activeOrder} busy={busy} onAdvance={props.onAdvance} onChat={props.onChat} />
+        <RidePanel order={activeOrder} busy={busy} onAdvance={props.onAdvance} onChat={props.onChat} onCall={props.onCall} />
       ) : (
         <>
           <View style={[styles.card, styles.availabilityCard]}>
@@ -767,7 +920,19 @@ function WalletTab({ wallet, pointsConfig, onRefresh, onBuyPoints, onSetupPayout
 }
 
 /* ---------------- Profile tab ---------------- */
-function ProfileTab({ driver, online, onSwitchRole }: { driver: { name: string; email: string; approvalState: string }; online: boolean; onSwitchRole: () => void }) {
+function ProfileTab({ driver, online, docs, uploading, onUpload, onSwitchRole }: {
+  driver: { name: string; email: string; approvalState: string };
+  online: boolean;
+  docs: DriverDocuments | null;
+  uploading: string | null;
+  onUpload: (type: string) => void;
+  onSwitchRole: () => void;
+}) {
+  const vehiclePhotos = ['vehicle_out', 'vehicle_in'].map((type) => ({
+    type,
+    label: type === 'vehicle_out' ? 'Exterior' : 'Interior',
+    document: docs?.documents.find((item) => item.type === type),
+  }));
   return (
     <>
       <View style={[styles.card, styles.center, { paddingVertical: 26 }]}>
@@ -780,20 +945,33 @@ function ProfileTab({ driver, online, onSwitchRole }: { driver: { name: string; 
           <Text style={[styles.pillText, { color: online ? colors.success : colors.muted }]}>{online ? 'Online' : 'Offline'}</Text>
         </View>
       </View>
+      <View style={styles.profileGalleryHead}>
+        <View><Text style={styles.sectionTitle}>Vehicle gallery</Text><Text style={styles.dimSmall}>Show riders a clean exterior and interior photo.</Text></View>
+        <Ionicons name="images-outline" size={24} color={colors.rust} />
+      </View>
+      <View style={styles.profileGallery}>
+        {vehiclePhotos.map(({ type, label, document }) => (
+          <Pressable key={type} onPress={() => onUpload(type)} disabled={uploading !== null} style={styles.profileUploadCard}>
+            {document?.preview_url ? <Image source={{ uri: document.preview_url }} style={styles.profileUploadImage} resizeMode="cover" /> : (
+              <View style={styles.profileUploadEmpty}><Ionicons name="camera-outline" size={28} color={colors.rust} /><Text style={styles.profileUploadEmptyText}>Add photo</Text></View>
+            )}
+            <View style={styles.profileUploadBar}>
+              <View><Text style={styles.profileUploadTitle}>{label}</Text><Text style={styles.profileUploadStatus}>{document?.status ?? 'Required'}</Text></View>
+              {uploading === type ? <ActivityIndicator size="small" color={colors.rust} /> : <Ionicons name={document ? 'camera-reverse-outline' : 'add-circle-outline'} size={21} color={colors.rust} />}
+            </View>
+          </Pressable>
+        ))}
+      </View>
       <Pressable style={[styles.btn, styles.btnGhost, styles.wFull]} onPress={onSwitchRole}>
-        <Ionicons name="swap-horizontal" size={18} color={colors.navy} />
-        <Text style={styles.btnGhostText}>Switch to Rider app</Text>
-      </Pressable>
-      <Pressable style={[styles.btn, styles.btnDanger, styles.wFull]} onPress={async () => { await logout(); onSwitchRole(); }}>
-        <Ionicons name="log-out-outline" size={18} color={colors.danger} />
-        <Text style={styles.btnDangerText}>Sign out</Text>
+        <Ionicons name="log-out-outline" size={18} color={colors.navy} />
+        <Text style={styles.btnGhostText}>Log out</Text>
       </Pressable>
     </>
   );
 }
 
 /* ---------------- Ride + Queue + Chat ---------------- */
-function RidePanel({ order, busy, onAdvance, onChat }: { order: Order; busy: boolean; onAdvance: () => void; onChat: () => void }) {
+function RidePanel({ order, busy, onAdvance, onChat, onCall }: { order: Order; busy: boolean; onAdvance: () => void; onChat: () => void; onCall: () => void }) {
   const steps = ['assigned', 'arrived', 'in_progress'];
   const labels: Record<string, string> = { assigned: 'Assigned', arrived: 'Arrived', in_progress: 'In progress' };
   const idx = steps.indexOf(order.status);
@@ -819,7 +997,8 @@ function RidePanel({ order, busy, onAdvance, onChat }: { order: Order; busy: boo
       </View>
       <View style={styles.rowGap}>
         <Pressable style={[styles.btn, styles.btnGhost, { flex: 1 }]} onPress={onChat}><Ionicons name="chatbubble-ellipses-outline" size={17} color={colors.navy} /><Text style={styles.btnGhostText}>Chat</Text></Pressable>
-        <Pressable style={[styles.btn, styles.btnPrimary, { flex: 2 }]} disabled={busy} onPress={onAdvance}><Text style={styles.btnPrimaryText}>{busy ? '…' : cta}</Text></Pressable>
+        <Pressable style={[styles.btn, styles.callButton]} onPress={onCall}><Ionicons name="call-outline" size={17} color={colors.white} /></Pressable>
+        <Pressable style={[styles.btn, styles.btnPrimary, { flex: 1.6 }]} disabled={busy} onPress={onAdvance}><Text style={styles.btnPrimaryText}>{busy ? '…' : cta}</Text></Pressable>
       </View>
     </View>
   );
@@ -870,6 +1049,51 @@ function QueueCard({ order, busy, onAccept, onCounter, onDecline }: {
   );
 }
 
+function DriverNotifications({ notifications, onClose, onOpenCall }: {
+  notifications: AppNotification[];
+  onClose: () => void;
+  onOpenCall: (orderId: number) => void;
+}) {
+  return (
+    <View style={styles.overlay}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.notificationSheet}>
+        <View style={styles.rowBetween}>
+          <View><Text style={styles.eyebrow}>ACTIVITY</Text><Text style={styles.notificationTitle}>Notifications</Text></View>
+          <Pressable onPress={onClose} style={styles.menuClose}><Ionicons name="close" size={22} color={colors.navy} /></Pressable>
+        </View>
+        <ScrollView style={styles.notificationScroll} showsVerticalScrollIndicator={false}>
+          {notifications.length === 0 ? <Text style={styles.dim}>No notifications yet.</Text> : notifications.map((item) => {
+            const orderId = Number(item.data?.order_id);
+            const incomingCall = item.type === 'incoming_voice_call' && Number.isFinite(orderId);
+            return (
+            <Pressable
+              key={item.id}
+              disabled={!incomingCall}
+              onPress={() => incomingCall && onOpenCall(orderId)}
+              style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread]}
+            >
+              <View style={styles.notificationItemIcon}>
+                <Ionicons
+                  name={(incomingCall ? 'call' : item.type === 'offer_accepted' ? 'checkmark-circle' : item.type === 'chat_message' ? 'chatbubble' : item.type.includes('payout') ? 'wallet' : 'notifications') as never}
+                  size={20}
+                  color={colors.white}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.notificationItemTitle}>{item.title}</Text>
+                <Text style={styles.notificationItemBody}>{item.body}</Text>
+                <Text style={styles.notificationItemMeta}>{item.type.replace(/_/g, ' ')}</Text>
+                {incomingCall ? <Text style={styles.notificationItemMeta}>Tap to answer</Text> : null}
+              </View>
+            </Pressable>
+          )})}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
 function ChatOverlay({ orderId, onClose }: { orderId: number; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -912,27 +1136,65 @@ function ChatOverlay({ orderId, onClose }: { orderId: number; onClose: () => voi
     finally { setSending(false); }
   }
   return (
-    <View style={styles.overlay}>
-      <View style={styles.sheet}>
-        <View style={styles.rowBetween}><Text style={styles.cardTitle}>Chat · order #{orderId}</Text><Pressable onPress={onClose}><Ionicons name="close" size={22} color={colors.navy} /></Pressable></View>
-        <ScrollView style={styles.chatScroll} contentContainerStyle={{ paddingVertical: 8 }}>
+    <View style={styles.chatPage}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.chatPageAvoider}>
+        <View style={styles.chatPageHeader}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onClose} style={styles.chatBack}>
+            <Ionicons name="chevron-back" size={24} color={colors.white} />
+          </Pressable>
+          <View style={styles.chatHeaderIdentity}>
+            <View style={styles.chatHeaderAvatar}><Ionicons name="person" size={20} color={colors.navy} /></View>
+            <View>
+              <Text style={styles.chatHeaderTitle}>Ride chat</Text>
+              <View style={styles.chatHeaderMeta}>
+                <View style={styles.chatOnlineDot} />
+                <Text style={styles.chatHeaderSubtitle}>Order #{orderId} · Private conversation</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.chatSecure}><Ionicons name="shield-checkmark" size={20} color={colors.gold} /></View>
+        </View>
+
+        <ScrollView
+          style={styles.chatPageMessages}
+          contentContainerStyle={styles.chatPageMessagesContent}
+          showsVerticalScrollIndicator={false}
+        >
           {loading ? <ActivityIndicator color={colors.gold} /> : null}
-          {!loading && messages.length === 0 ? <Text style={styles.dim}>No messages yet.</Text> : null}
+          {!loading && messages.length === 0 ? (
+            <View style={styles.chatEmpty}>
+              <View style={styles.chatEmptyIcon}><Ionicons name="chatbubbles-outline" size={30} color={colors.rust} /></View>
+              <Text style={styles.chatEmptyTitle}>Start the conversation</Text>
+              <Text style={styles.chatEmptyText}>Coordinate the pickup with your rider here.</Text>
+            </View>
+          ) : null}
           {messages.map((m) => (
-            <View key={m.id} style={[styles.bubble, m.sender_role === 'driver' ? styles.bubbleMine : styles.bubbleTheirs]}>
-              <Text style={[styles.bubbleMeta, m.sender_role === 'driver' && { color: 'rgba(255,255,255,0.7)' }]}>{m.sender_role}</Text>
+            <View key={m.id} style={[styles.chatMessage, m.sender_role === 'driver' ? styles.chatMessageMine : styles.chatMessageTheirs]}>
+              <Text style={[styles.bubbleMeta, m.sender_role === 'driver' && styles.chatMessageMetaMine]}>{m.sender_role === 'driver' ? 'You' : 'Rider'}</Text>
               <Text style={[styles.bubbleText, m.sender_role === 'driver' && { color: colors.white }]}>{m.text}</Text>
             </View>
           ))}
           {error ? <Text style={styles.chatError}>{error}</Text> : null}
         </ScrollView>
-        <View style={styles.rowGap}>
-          <TextInput style={styles.chatInput} value={draft} onChangeText={setDraft} onSubmitEditing={send} placeholder="Message the rider…" placeholderTextColor={colors.muted} />
-          <Pressable disabled={sending || !draft.trim()} style={[styles.btn, styles.btnPrimary, styles.btnSm, (sending || !draft.trim()) && styles.btnDisabled]} onPress={send}>
-            {sending ? <ActivityIndicator size="small" color={colors.white} /> : <Ionicons name="send" size={16} color={colors.white} />}
+
+        <View style={styles.chatPageComposer}>
+          <View style={styles.chatComposerField}>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.muted} />
+            <TextInput
+              style={styles.chatPageInput}
+              value={draft}
+              onChangeText={setDraft}
+              onSubmitEditing={send}
+              placeholder="Write a message…"
+              placeholderTextColor={colors.muted}
+              returnKeyType="send"
+            />
+          </View>
+          <Pressable disabled={sending || !draft.trim()} style={[styles.chatPageSend, (sending || !draft.trim()) && styles.btnDisabled]} onPress={send}>
+            {sending ? <ActivityIndicator size="small" color={colors.white} /> : <Ionicons name="arrow-up" size={22} color={colors.white} />}
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -959,31 +1221,43 @@ function Stat({ label, value, icon }: { label: string; value: string; icon: stri
 function fmt(n?: number | null): string { return Number(n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
 
 const styles = StyleSheet.create({
-  page: { alignItems: 'center', flex: 1, backgroundColor: '#ece8e2' },
+  page: { alignItems: Platform.OS === 'web' ? 'center' : 'stretch', flex: 1, backgroundColor: '#ece8e2' },
   phone: {
     backgroundColor: colors.sand,
     flex: 1,
-    maxWidth: 430,
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
-    ...(Platform.OS === 'web' ? { borderColor: '#d8d5d0', borderRadius: 30, borderWidth: 1, marginVertical: 14, maxHeight: 920, boxShadow: '0 24px 70px rgba(8,26,45,.18)' as never } : null),
+    ...(Platform.OS === 'web' ? { borderColor: '#d8d5d0', borderRadius: 30, borderWidth: 1, marginVertical: 14, maxHeight: 920, maxWidth: 430, boxShadow: '0 24px 70px rgba(8,26,45,.18)' as never } : null),
   },
   body: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center', gap: 8 },
   dim: { color: colors.muted, fontSize: 13 },
   dimSmall: { color: colors.muted, fontSize: 11, marginTop: 2 },
 
-  header: { backgroundColor: colors.navy, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerIdentity: { alignItems: 'center', flexDirection: 'row', gap: 11 },
+  header: {
+    alignItems: 'center',
+    backgroundColor: colors.navy,
+    flexDirection: 'row',
+    gap: 11,
+    minHeight: 92,
+    paddingBottom: 14,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+  },
+  headerIdentity: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 9 },
+  menuButton: { alignItems: 'center', borderColor: 'rgba(255,255,255,.2)', borderRadius: 12, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
   headerAvatar: { alignItems: 'center', backgroundColor: colors.gold, borderColor: 'rgba(255,255,255,.35)', borderRadius: 18, borderWidth: 2, height: 42, justifyContent: 'center', width: 42 },
   headerAvatarText: { color: colors.white, fontSize: 17, fontWeight: '900' },
   eyebrow: { color: colors.gold, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' },
-  title: { color: colors.white, fontSize: 23, fontWeight: '900', marginTop: 2 },
-  headerMark: { width: 34, height: 34 },
+  title: { color: colors.white, fontSize: 19, fontWeight: '900', lineHeight: 23, marginTop: 1 },
+  headerMark: { width: 30, height: 30 },
+  headerBell: { alignItems: 'center', borderColor: 'rgba(255,255,255,.22)', borderRadius: 13, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
+  headerBellBadge: { alignItems: 'center', backgroundColor: colors.rust, borderColor: colors.navy, borderRadius: 9, borderWidth: 2, justifyContent: 'center', minHeight: 18, minWidth: 18, paddingHorizontal: 3, position: 'absolute', right: -5, top: -5 },
+  headerBellBadgeText: { color: colors.white, fontSize: 8, fontWeight: '900' },
 
   scrollView: { flex: 1 },
-  scroll: { padding: 14, gap: 12 },
+  scroll: { padding: 16, paddingBottom: 32, gap: 14 },
 
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999 },
   pillOn: { backgroundColor: colors.greenSoft }, pillOff: { backgroundColor: 'rgba(255,255,255,0.14)' },
@@ -992,7 +1266,7 @@ const styles = StyleSheet.create({
   notice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff3e6', borderColor: colors.gold, borderWidth: 1, borderRadius: radius.md, padding: 12 },
   noticeText: { color: colors.rustDark, fontSize: 13, fontWeight: '600', flex: 1 },
 
-  walletRow: { flexDirection: 'row', gap: 10 },
+  walletRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   signupCard: { alignItems: 'center', borderColor: colors.gold, flexDirection: 'row' },
   signupIcon: { alignItems: 'center', backgroundColor: '#fff3e6', borderRadius: 14, height: 46, justifyContent: 'center', width: 46 },
   verificationCard: { alignItems: 'center', backgroundColor: '#fff8ef', borderColor: colors.gold, flexDirection: 'row' },
@@ -1007,7 +1281,7 @@ const styles = StyleSheet.create({
   currentRideBadgeText: { color: colors.muted, fontSize: 9, fontWeight: '900', letterSpacing: .6 },
   currentRideBadgeTextOn: { color: colors.success },
 
-  card: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, padding: 16, gap: 10, ...shadow },
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, padding: 16, gap: 12, ...shadow },
   availabilityCard: { borderWidth: 0, padding: 18 },
   availabilityTop: { alignItems: 'center', flexDirection: 'row', gap: 11 },
   availabilityTitle: { color: colors.navy, fontSize: 18, fontWeight: '900' },
@@ -1113,9 +1387,57 @@ const styles = StyleSheet.create({
   avatar: { width: 66, height: 66, borderRadius: 33, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: colors.white, fontSize: 26, fontWeight: '900' },
   profileName: { fontSize: 18, fontWeight: '800', color: colors.navy, marginTop: 4 },
+  profileGalleryHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  profileGallery: { flexDirection: 'row', gap: 10 },
+  profileUploadCard: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 17, borderWidth: 1, flex: 1, overflow: 'hidden', ...shadow },
+  profileUploadImage: { height: 120, width: '100%' },
+  profileUploadEmpty: { alignItems: 'center', backgroundColor: '#f8f3ec', gap: 5, height: 120, justifyContent: 'center' },
+  profileUploadEmptyText: { color: colors.muted, fontSize: 11, fontWeight: '800' },
+  profileUploadBar: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 54, paddingHorizontal: 10, paddingVertical: 8 },
+  profileUploadTitle: { color: colors.navy, fontSize: 12, fontWeight: '900' },
+  profileUploadStatus: { color: colors.muted, fontSize: 9, marginTop: 2, textTransform: 'capitalize' },
 
-  // Tab bar
-  tabbar: { flexDirection: 'row', backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8, paddingBottom: 20, paddingHorizontal: 3 },
+  // Side navigation
+  menuLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80 },
+  menuBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(3,18,32,.52)' },
+  menuPanel: {
+    backgroundColor: colors.sand,
+    bottom: 0,
+    left: 0,
+    maxWidth: 340,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    position: 'absolute',
+    top: 0,
+    width: '86%',
+    ...shadow,
+  },
+  menuHead: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', gap: 11, paddingBottom: 16 },
+  menuAvatar: { alignItems: 'center', backgroundColor: colors.gold, borderRadius: 16, height: 46, justifyContent: 'center', width: 46 },
+  menuAvatarText: { color: colors.white, fontSize: 18, fontWeight: '900' },
+  menuName: { color: colors.navy, fontSize: 16, fontWeight: '900' },
+  menuEmail: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  menuClose: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 12, borderWidth: 1, height: 38, justifyContent: 'center', width: 38 },
+  menuSectionLabel: { color: colors.rust, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10, marginTop: 18 },
+  menuItems: { gap: 8 },
+  menuItem: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, minHeight: 56, paddingHorizontal: 10 },
+  menuItemActive: { backgroundColor: colors.navy, borderColor: colors.navy },
+  menuItemIcon: { alignItems: 'center', backgroundColor: colors.blueSoft, borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
+  menuItemIconActive: { backgroundColor: 'rgba(255,255,255,.14)' },
+  menuItemText: { color: colors.navy, flex: 1, fontSize: 14, fontWeight: '800' },
+  menuItemTextActive: { color: colors.white },
+  menuBadge: { alignItems: 'center', backgroundColor: colors.rust, borderRadius: 10, justifyContent: 'center', minHeight: 20, minWidth: 20, paddingHorizontal: 5 },
+  menuBadgeText: { color: colors.white, fontSize: 9, fontWeight: '900' },
+  menuDot: { backgroundColor: colors.rust, borderRadius: 5, height: 9, width: 9 },
+  menuLogout: { alignItems: 'center', backgroundColor: '#fff1ef', borderColor: '#f0c8c1', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 14, minHeight: 48, paddingHorizontal: 14 },
+  menuLogoutText: { color: colors.danger, fontSize: 14, fontWeight: '900' },
+  menuFooter: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 'auto', paddingTop: 18 },
+  menuMark: { height: 30, width: 30 },
+  menuFooterText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+
+  // Legacy tab styles retained for compatibility with older builds.
+  tabbar: { flexDirection: 'row', backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10, paddingBottom: 18, paddingHorizontal: 3 },
   tabItem: { flex: 1, alignItems: 'center', gap: 3 },
   tabLabel: { fontSize: 9.5, color: colors.muted, fontWeight: '700' }, tabLabelActive: { color: colors.navy },
   tabBadge: { position: 'absolute', top: -2, right: -6, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.rust, borderWidth: 1.5, borderColor: colors.white },
@@ -1123,12 +1445,46 @@ const styles = StyleSheet.create({
   tabCountText: { color: colors.white, fontSize: 8, fontWeight: '900' },
 
   // Chat overlay
-  overlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(8,20,38,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.sand, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '80%', width: '100%', maxWidth: 480, alignSelf: 'center', gap: 10 },
-  chatScroll: { maxHeight: 320 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,20,38,0.5)', justifyContent: 'flex-end', zIndex: 120 },
+  callOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.navy, zIndex: 120 },
+  callButton: { backgroundColor: colors.success, borderColor: colors.success, width: 48 },
+  chatPage: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.sand, zIndex: 100 },
+  chatPageAvoider: { flex: 1 },
+  chatPageHeader: { alignItems: 'center', backgroundColor: colors.navy, flexDirection: 'row', gap: 12, minHeight: 86, paddingHorizontal: 14, paddingVertical: 14 },
+  chatBack: { alignItems: 'center', borderColor: 'rgba(255,255,255,.2)', borderRadius: 13, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
+  chatHeaderIdentity: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 10 },
+  chatHeaderAvatar: { alignItems: 'center', backgroundColor: colors.gold, borderRadius: 18, height: 42, justifyContent: 'center', width: 42 },
+  chatHeaderTitle: { color: colors.white, fontSize: 17, fontWeight: '900' },
+  chatHeaderMeta: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 3 },
+  chatOnlineDot: { backgroundColor: colors.success, borderRadius: 4, height: 7, width: 7 },
+  chatHeaderSubtitle: { color: '#b9cbe0', fontSize: 10, fontWeight: '700' },
+  chatSecure: { alignItems: 'center', justifyContent: 'center', width: 28 },
+  chatPageMessages: { flex: 1 },
+  chatPageMessagesContent: { flexGrow: 1, gap: 7, justifyContent: 'flex-end', paddingHorizontal: 15, paddingVertical: 18 },
+  chatEmpty: { alignItems: 'center', alignSelf: 'center', marginVertical: 'auto', maxWidth: 260 },
+  chatEmptyIcon: { alignItems: 'center', backgroundColor: '#f8e3d8', borderRadius: 24, height: 64, justifyContent: 'center', width: 64 },
+  chatEmptyTitle: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 12 },
+  chatEmptyText: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 5, textAlign: 'center' },
+  chatMessage: { borderRadius: 18, maxWidth: '80%', paddingHorizontal: 14, paddingVertical: 11 },
+  chatMessageMine: { alignSelf: 'flex-end', backgroundColor: colors.navy, borderBottomRightRadius: 5 },
+  chatMessageTheirs: { alignSelf: 'flex-start', backgroundColor: colors.white, borderBottomLeftRadius: 5, borderColor: colors.line, borderWidth: 1 },
+  chatMessageMetaMine: { color: 'rgba(255,255,255,.65)' },
+  chatPageComposer: { alignItems: 'center', backgroundColor: colors.white, borderTopColor: colors.line, borderTopWidth: 1, flexDirection: 'row', gap: 9, paddingBottom: 14, paddingHorizontal: 14, paddingTop: 12 },
+  chatComposerField: { alignItems: 'center', backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 22, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, minHeight: 48, paddingHorizontal: 14 },
+  chatPageInput: { color: colors.ink, flex: 1, fontSize: 15, paddingVertical: 10 },
+  chatPageSend: { alignItems: 'center', backgroundColor: colors.rust, borderRadius: 24, height: 48, justifyContent: 'center', width: 48 },
   bubble: { maxWidth: '82%', padding: 10, borderRadius: 14, marginVertical: 4 },
   bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.navy }, bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   bubbleMeta: { fontSize: 10, color: colors.muted, marginBottom: 2 }, bubbleText: { fontSize: 13.5, color: colors.ink },
   chatInput: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.white, color: colors.ink },
   chatError: { color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
+  notificationSheet: { alignSelf: 'center', backgroundColor: colors.sand, borderTopLeftRadius: 26, borderTopRightRadius: 26, gap: 14, maxHeight: '78%', paddingBottom: 24, paddingHorizontal: 16, paddingTop: 18, width: '100%', maxWidth: 560 },
+  notificationTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
+  notificationScroll: { maxHeight: 520 },
+  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, marginBottom: 9, padding: 12 },
+  notificationItemUnread: { backgroundColor: '#fff7ed', borderColor: colors.gold },
+  notificationItemIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
+  notificationItemTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
+  notificationItemBody: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  notificationItemMeta: { color: colors.rust, fontSize: 9, fontWeight: '900', letterSpacing: .7, marginTop: 6, textTransform: 'uppercase' },
 });

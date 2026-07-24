@@ -62,6 +62,7 @@ export type OrderOffer = {
       plate?: string | null;
       type?: string | null;
     } | null;
+    vehicle_photos?: Array<{ id: number; type: string; url: string }>;
   };
   created_at?: string;
 };
@@ -173,6 +174,7 @@ export type CatalogDriver = {
   vehicle_type?: string | null;
   approval_state?: string | null;
   online_status: boolean;
+  vehicle_photos?: Array<{ id: number; type: string; url: string }>;
 };
 
 export type Catalog = {
@@ -239,6 +241,7 @@ export type DriverDocument = {
   original_name?: string | null;
   note?: string | null;
   created_at?: string;
+  preview_url?: string | null;
 };
 
 export type DocChecklistItem = {
@@ -248,6 +251,7 @@ export type DocChecklistItem = {
 };
 
 export type DriverDocuments = {
+  approval_state: string;
   checklist: DocChecklistItem[];
   documents: DriverDocument[];
   has_all_required: boolean;

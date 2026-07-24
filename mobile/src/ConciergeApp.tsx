@@ -6,13 +6,13 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ActionButton,
   EmptyState,
@@ -312,15 +312,16 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.sand} />
       <View style={styles.header}>
         <Image source={moroLogoMark} style={styles.logo} resizeMode="contain" />
         <View style={{ flex: 1 }}>
           <Text style={styles.brand}>MoroRide Concierge</Text>
           <Text style={styles.brandSub}>Dispatch rides for your guests</Text>
         </View>
-        <Pressable onPress={switchRole} accessibilityLabel="Switch role" style={styles.switchBtn}>
-          <Ionicons name="swap-horizontal" size={20} color={colors.white} />
+        <Pressable onPress={switchRole} accessibilityLabel="Log out" style={styles.switchBtn}>
+          <Ionicons name="log-out-outline" size={19} color={colors.white} />
+          <Text style={styles.switchBtnText}>Log out</Text>
         </Pressable>
       </View>
 
@@ -533,19 +534,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navy,
     flexDirection: 'row',
     gap: 12,
+    minHeight: 92,
     paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingVertical: 14,
   },
   logo: { height: 38, width: 38 },
   brand: { color: colors.white, fontSize: 18, fontWeight: '900' },
   brandSub: { color: '#b9cbe0', fontSize: 12, fontWeight: '600' },
-  switchBtn: { backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 999, padding: 10 },
+  switchBtn: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 999, flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 9 },
+  switchBtnText: { color: colors.white, fontSize: 12, fontWeight: '800' },
   tabs: { backgroundColor: colors.navy, flexDirection: 'row', gap: 6, paddingBottom: 12, paddingHorizontal: 12 },
   tab: { borderRadius: 999, flex: 1, paddingVertical: 8 },
   tabActive: { backgroundColor: colors.gold },
   tabText: { color: '#b9cbe0', fontSize: 12, fontWeight: '800', textAlign: 'center', textTransform: 'capitalize' },
   tabTextActive: { color: colors.navy },
-  body: { padding: 16, paddingBottom: 48 },
+  body: { padding: 16, paddingBottom: 64 },
   label: { color: colors.inkSoft, fontSize: 13, fontWeight: '800', marginBottom: 6 },
   input: {
     backgroundColor: colors.white,
@@ -557,7 +560,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  row: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
   chips: { gap: 8, paddingVertical: 4, marginBottom: 12 },
   chip: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
   chipActive: { backgroundColor: colors.navy, borderColor: colors.navy },
@@ -585,7 +588,7 @@ const styles = StyleSheet.create({
   bubbleRole: { color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 3, textTransform: 'capitalize' },
   bubbleText: { color: colors.ink, fontSize: 14 },
   chatImage: { borderRadius: 10, height: 150, marginBottom: 6, width: 200 },
-  composer: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 12 },
+  composer: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, padding: 8, paddingBottom: 16 },
   imageBtn: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 999, borderWidth: 1, padding: 10 },
   composerInput: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 999, borderWidth: 1, color: colors.ink, flex: 1, paddingHorizontal: 14, paddingVertical: 10 },
   sendBtn: { backgroundColor: colors.navy, borderRadius: 999, padding: 12 },

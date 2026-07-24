@@ -14,10 +14,17 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mororide.app"
+      "bundleIdentifier": "com.mororide.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "MoroRide uses your microphone for private voice calls during an active ride."
+      }
     },
     "android": {
       "package": "com.mororide.app",
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/moro_app_icon_512.png",
         "backgroundColor": "#74001b"
@@ -32,6 +39,8 @@
       "expo-asset",
       "expo-font",
       "expo-notifications",
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc",
       [
         "@stripe/stripe-react-native",
         {
