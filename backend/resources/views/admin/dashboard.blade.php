@@ -118,6 +118,7 @@
         .switch-line { display:flex; align-items:center; gap:9px; min-height:36px; font-weight:700; }
         .notice { padding:12px 14px; border-radius:12px; background:var(--amber-bg); color:#71531d; line-height:1.55; }
         .notice.info { background:var(--blue-bg); color:#184d82; }
+        .notice.ok { background:#e7f7ee; color:#23633e; }
         .secret-state { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
         .code-box { padding:10px 12px; border:1px dashed #c8c2b7; background:#faf8f4; border-radius:10px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
         .event-list { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
@@ -876,21 +877,43 @@
     render.settings = async () => {
         loading();
         const p = await api('GET', '/api/admin/settings');
-        const rows = (p.data||[]).map(s => `
+        const settings = p.data || [];
+        const byKey = Object.fromEntries(settings.map(s => [s.key, s]));
+        const freeOn = byKey['billing.free_launch_enabled']?.value == '1';
+        const freeTitle = byKey['billing.free_launch_title']?.value || 'Free during launch — all features unlocked while we build the network.';
+        const freeBody = byKey['billing.free_launch_body']?.value || 'No payment needed today. These are the plans that will apply when billing starts.';
+        const rows = settings.filter(s => !['billing.free_launch_enabled','billing.free_launch_title','billing.free_launch_body'].includes(s.key)).map(s => `
             <tr><td>${esc(s.group)}</td><td>${esc(s.label||s.key)}<div class="muted" style="font-size:11px">${esc(s.key)}</div></td>
             <td>${ s.type==='boolean'
                 ? `<select data-key="${esc(s.key)}"><option value="1" ${s.value=='1'?'selected':''}>On</option><option value="0" ${s.value!='1'?'selected':''}>Off</option></select>`
                 : `<input type="${s.type==='number'?'number':'text'}" data-key="${esc(s.key)}" value="${esc(s.value)}">` }</td>
             <td class="muted">${esc(s.type)}</td></tr>`).join('');
         view(`
+            <div class="panel">
+              <div class="panel-head"><h2>Launch billing mode</h2><button class="btn primary sm" onclick="saveSettings()">Save changes</button></div>
+              <div class="pad">
+                <div class="notice ${freeOn ? 'ok' : 'info'}">
+                  <b>${freeOn ? 'Billing is OFF — app is free during launch.' : 'Billing is ON — paid system is active.'}</b><br>
+                  ${freeOn ? 'Drivers can complete cash rides without spending points/free rides. Paid billing can be restored anytime.' : 'The normal paid/points/commission system is active.'}
+                </div>
+                <div class="payment-grid">
+                  <div class="field"><label>Free launch mode</label><select data-key="billing.free_launch_enabled">
+                    <option value="1" ${freeOn ? 'selected' : ''}>On — billing off / free app</option>
+                    <option value="0" ${!freeOn ? 'selected' : ''}>Off — paid system active</option>
+                  </select><small>Turn this on while launching the network. Turn it off to return to the current paid system.</small></div>
+                  <div class="field wide"><label>Mobile banner title</label><input data-key="billing.free_launch_title" type="text" value="${esc(freeTitle)}"></div>
+                  <div class="field wide"><label>Mobile banner body</label><input data-key="billing.free_launch_body" type="text" value="${esc(freeBody)}"></div>
+                </div>
+              </div>
+            </div>
             <div class="panel"><div class="panel-head"><h2>Platform settings</h2><button class="btn primary sm" onclick="saveSettings()">Save changes</button></div>
               <div class="table-wrap"><table><thead><tr><th>Group</th><th>Setting</th><th>Value</th><th>Type</th></tr></thead>
               <tbody id="settingsRows">${rows || '<tr><td colspan="4" class="empty">No settings.</td></tr>'}</tbody></table></div></div>`);
     };
     window.saveSettings = async () => {
         const settings = {};
-        document.querySelectorAll('#settingsRows [data-key]').forEach(el => settings[el.dataset.key] = el.value);
-        try { await api('POST', '/api/admin/settings', { settings }); toast('Settings saved'); }
+        document.querySelectorAll('[data-key]').forEach(el => settings[el.dataset.key] = el.value);
+        try { await api('POST', '/api/admin/settings', { settings }); toast('Settings saved'); await render.settings(); }
         catch(e){ toast(e.message,'err'); }
     };
 

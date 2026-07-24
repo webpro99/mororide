@@ -29,6 +29,7 @@ import {
   getCatalog,
   getNotifications,
   getOrderMessages,
+  getPlatformMode,
   getRiderOffers,
   getRiderOrder,
   getRiderHistory,
@@ -51,7 +52,7 @@ import { LocationPicker, PickedLocation } from './src/LocationPicker';
 import { VoiceCallScreen } from './src/VoiceCallScreen';
 import { IncomingCallPrompt } from './src/IncomingCallPrompt';
 import { createRealtimeClient } from './src/realtime';
-import { AppNotification, Catalog, CatalogCity, CatalogDriver, CatalogVehicle, ChatMessage, DriverLocationEvent, FareEstimate, Order, OrderOffer, RideConversation } from './src/types';
+import { AppNotification, Catalog, CatalogCity, CatalogDriver, CatalogVehicle, ChatMessage, DriverLocationEvent, FareEstimate, Order, OrderOffer, PlatformMode, RideConversation } from './src/types';
 
 type Screen = 'booking' | 'offers' | 'profile' | 'tracking' | 'chat' | 'call' | 'completed' | 'history' | 'messages';
 type DemoCoord = { lat: number; lng: number };
@@ -104,6 +105,8 @@ function AppContent() {
   const [authenticated, setAuthenticated] = useState(false);
   const [signUp, setSignUp] = useState(false);
   const [signUpRole, setSignUpRole] = useState<AppMode>('rider');
+  const [platformMode, setPlatformMode] = useState<PlatformMode | null>(null);
+  const [freeBannerHidden, setFreeBannerHidden] = useState(false);
 
   useEffect(() => {
     Promise.all([AsyncStorage.getItem(APP_MODE_KEY), restoreSession().catch(() => null)]).then(([stored, session]) => {
@@ -111,6 +114,23 @@ function AppContent() {
       setAuthenticated(Boolean(storedMode && session?.user.role === storedMode));
       setMode(storedMode);
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      getPlatformMode()
+        .then((nextMode) => {
+          if (active) setPlatformMode(nextMode);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
   async function pick(next: AppMode) {
@@ -160,9 +180,44 @@ function AppContent() {
       onBack={async () => { await AsyncStorage.removeItem(APP_MODE_KEY); setMode(null); }}
     />;
   }
-  if (mode === 'driver') return <DriverApp onSwitchRole={switchRole} />;
-  if (mode === 'concierge') return <ConciergeApp onSwitchRole={switchRole} />;
-  return <RiderApp onSwitchRole={switchRole} />;
+  const roleApp = mode === 'driver'
+    ? <DriverApp onSwitchRole={switchRole} />
+    : mode === 'concierge'
+      ? <ConciergeApp onSwitchRole={switchRole} />
+      : <RiderApp onSwitchRole={switchRole} />;
+
+  return (
+    <View style={styles.appShell}>
+      {roleApp}
+      {platformMode?.free_launch_enabled && !freeBannerHidden ? (
+        <FreeLaunchBanner mode={platformMode} onClose={() => setFreeBannerHidden(true)} />
+      ) : null}
+    </View>
+  );
+}
+
+function FreeLaunchBanner({ mode, onClose }: { mode: PlatformMode; onClose: () => void }) {
+  return (
+    <View pointerEvents="box-none" style={styles.freeLaunchWrap}>
+      <View style={styles.freeLaunchCard}>
+        <View style={styles.freeLaunchStar}>
+          <Ionicons name="sparkles" size={22} color={colors.navy} />
+        </View>
+        <View style={styles.freeLaunchCopy}>
+          <View style={styles.freeLaunchTitleRow}>
+            <Text style={styles.freeLaunchTitle}>{mode.title}</Text>
+            <View style={styles.billingOffPill}>
+              <Text style={styles.billingOffText}>Billing off</Text>
+            </View>
+          </View>
+          <Text style={styles.freeLaunchBody}>{mode.body}</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss free launch banner" onPress={onClose} style={styles.freeLaunchClose}>
+          <Ionicons name="close" size={18} color={colors.white} />
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 function RoleGate({ onPick, onSignUp }: { onPick: (mode: AppMode) => void; onSignUp: () => void }) {
@@ -2459,6 +2514,11 @@ const shadow = {
 };
 
 const styles = StyleSheet.create({
+  appShell: {
+    backgroundColor: '#f5f1ec',
+    flex: 1,
+    position: 'relative',
+  },
   page: {
     alignItems: Platform.OS === 'web' ? 'center' : 'stretch',
     backgroundColor: '#f5f1ec',
@@ -2481,6 +2541,82 @@ const styles = StyleSheet.create({
           boxShadow: '0 24px 80px rgba(8, 26, 45, .18)' as never,
         }
       : null),
+  },
+  freeLaunchWrap: {
+    alignItems: 'center',
+    left: 0,
+    paddingHorizontal: 14,
+    position: 'absolute',
+    right: 0,
+    top: Platform.OS === 'web' ? 28 : 54,
+    zIndex: 200,
+  },
+  freeLaunchCard: {
+    alignItems: 'flex-start',
+    backgroundColor: '#151a21',
+    borderColor: 'rgba(255,255,255,.08)',
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    maxWidth: 430,
+    paddingBottom: 18,
+    paddingLeft: 16,
+    paddingRight: 12,
+    paddingTop: 18,
+    width: '100%',
+    ...shadow,
+  },
+  freeLaunchStar: {
+    alignItems: 'center',
+    backgroundColor: colors.gold,
+    borderRadius: 18,
+    height: 38,
+    justifyContent: 'center',
+    marginTop: 2,
+    width: 38,
+  },
+  freeLaunchCopy: {
+    flex: 1,
+    gap: 8,
+  },
+  freeLaunchTitleRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  freeLaunchTitle: {
+    color: '#fffaf0',
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
+  billingOffPill: {
+    backgroundColor: '#dff5f1',
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  billingOffText: {
+    color: '#12756b',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  freeLaunchBody: {
+    color: 'rgba(255,250,240,.72)',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  freeLaunchClose: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,.12)',
+    borderRadius: 999,
+    height: 30,
+    justifyContent: 'center',
+    marginLeft: -4,
+    width: 30,
   },
   screen: {
     backgroundColor: colors.navy,

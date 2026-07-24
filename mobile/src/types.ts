@@ -101,6 +101,13 @@ export type FareEstimate = {
   driver_net_estimate: number;
 };
 
+export type PlatformMode = {
+  free_launch_enabled: boolean;
+  billing_state: 'off' | 'paid' | string;
+  title: string;
+  body: string;
+};
+
 export type DriverConversation = RideConversation;
 
 export type DriverLocationEvent = {

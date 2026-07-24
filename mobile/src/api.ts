@@ -16,6 +16,7 @@ import {
   Order,
   OrderOffer,
   PaymentIntentResponse,
+  PlatformMode,
   Rating,
   RidePaymentIntent,
   RideConversation,
@@ -344,6 +345,10 @@ export function getRiderHistory() {
 
 export function getRiderConversations() {
   return request<RideConversation[] | Paged<RideConversation>>('/rider/conversations').then(asList);
+}
+
+export function getPlatformMode() {
+  return request<PlatformMode>('/platform-mode');
 }
 
 export function estimateFare(payload: { distance_km: number; eta_min: number; pax?: number; vehicle_type?: string }) {

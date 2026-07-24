@@ -62,6 +62,23 @@ class WalletService
         return $this->writeLedgerEntry($wallet, $order, $transaction, 'credit', 'card_net_earning', $net, 0, 'Card ride net earning credited to driver wallet.');
     }
 
+    public function waiveCashCommission(User $driver, Order $order, Transaction $transaction, string $reason): WalletLedgerEntry
+    {
+        $wallet = $this->createWalletForUser($driver);
+
+        return $this->writeLedgerEntry(
+            $wallet,
+            $order,
+            $transaction,
+            'debit',
+            'cash_commission_waived',
+            0,
+            0,
+            $reason,
+            ['billing_off' => true]
+        );
+    }
+
     public function topUpPoints(User $driver, float $amount, ?PaymentIntent $paymentIntent = null): WalletLedgerEntry
     {
         $wallet = $this->createWalletForUser($driver);

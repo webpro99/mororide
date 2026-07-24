@@ -19,6 +19,7 @@ class OrderService
         private WalletService $walletService,
         private AuditLogService $auditLogService,
         private PaymentService $paymentService,
+        private BillingModeService $billingModeService,
         private NotificationService $notificationService
     ) {}
 
@@ -98,9 +99,10 @@ class OrderService
         }
 
         $fare = (float) ($order->final_fare ?: $order->offered_fare);
+        $freeLaunch = $this->billingModeService->freeLaunchEnabled();
 
         try {
-            return DB::transaction(function () use ($order, $driver, $fare) {
+            return DB::transaction(function () use ($order, $driver, $fare, $freeLaunch) {
                 $cardPayment = null;
                 if ($order->payment_method === 'card') {
                     // Lock the payment row in the same transaction as ride
@@ -112,7 +114,7 @@ class OrderService
                     }
                 }
 
-                $fee = $this->fareService->calculatePlatformFee($fare);
+                $fee = $freeLaunch ? 0 : $this->fareService->calculatePlatformFee($fare);
                 $net = round($fare - $fee, 2);
 
                 $order->update([
@@ -133,17 +135,22 @@ class OrderService
                     'fare' => $fare,
                     'fee' => $fee,
                     'net' => $net,
-                    'currency' => $this->fareService->getActiveConfig()->currency,
+                    'currency' => $this->transactionCurrency(),
                     'status' => 'succeeded',
                     'payment_provider_references' => $cardPayment ? [
                         'provider' => 'stripe',
                         'payment_intent_id' => $cardPayment->provider_intent_id,
                     ] : null,
-                    'metadata' => ['mode' => $order->payment_method === 'card' ? 'stripe' : 'cash_mvp'],
+                    'metadata' => [
+                        'mode' => $freeLaunch ? 'free_launch' : ($order->payment_method === 'card' ? 'stripe' : 'cash_mvp'),
+                        'billing_off' => $freeLaunch,
+                    ],
                 ]);
 
                 if ($order->payment_method === 'card') {
                     $this->walletService->creditCardEarning($driver, $order, $transaction, $net);
+                } elseif ($freeLaunch) {
+                    $this->walletService->waiveCashCommission($driver, $order, $transaction, 'Free launch mode: platform commission waived.');
                 } else {
                     $this->walletService->debitCashCommission($driver, $order, $transaction, $fee);
                 }
@@ -325,6 +332,15 @@ class OrderService
         $this->recordStatus($order, $actor, $expected, $next, "Order moved to {$next}.");
 
         return $order->fresh(['driver', 'city']);
+    }
+
+    private function transactionCurrency(): string
+    {
+        try {
+            return $this->fareService->getActiveConfig()->currency;
+        } catch (RuntimeException) {
+            return 'MAD';
+        }
     }
 
     private function ensureAssignedDriver(Order $order, User $driver): void
