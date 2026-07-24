@@ -46,8 +46,25 @@ const moroLogoMark = require('../assets/moro_logo_mark_transparent.png');
 
 type Screen = 'book' | 'offers' | 'track' | 'chat' | 'history';
 
+const MENU_ITEMS: Array<{ id: Screen; label: string; icon: string; subtitle: string }> = [
+  { id: 'book', label: 'Create booking', icon: 'add-circle', subtitle: 'Dispatch a guest ride' },
+  { id: 'offers', label: 'Driver offers', icon: 'pricetags', subtitle: 'Choose the best driver' },
+  { id: 'track', label: 'Track ride', icon: 'navigate-circle', subtitle: 'Follow active guest ride' },
+  { id: 'chat', label: 'Ride chat', icon: 'chatbubbles', subtitle: 'Message ride participants' },
+  { id: 'history', label: 'Ride history', icon: 'time', subtitle: 'Completed guest rides' },
+];
+
+const SCREEN_TITLES: Record<Screen, string> = {
+  book: 'Create booking',
+  offers: 'Driver Offers',
+  track: 'Track Ride',
+  chat: 'Ride Chat',
+  history: 'Ride History',
+};
+
 export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => void }) {
   const [screen, setScreen] = useState<Screen>('book');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -314,30 +331,18 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
     <SafeAreaView style={styles.page}>
       <StatusBar style="dark" translucent={false} backgroundColor={colors.sand} />
       <View style={styles.header}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu" onPress={() => setMenuOpen(true)} style={styles.menuButton}>
+          <Ionicons name="menu" size={25} color={colors.white} />
+        </Pressable>
         <Image source={moroLogoMark} style={styles.logo} resizeMode="contain" />
         <View style={{ flex: 1 }}>
-          <Text style={styles.brand}>MoroRide Concierge</Text>
-          <Text style={styles.brandSub}>Dispatch rides for your guests</Text>
+          <Text style={styles.brand}>MoroRide</Text>
+          <Text style={styles.brandSub}>Concierge · {SCREEN_TITLES[screen]}</Text>
         </View>
-        <Pressable onPress={switchRole} accessibilityLabel="Log out" style={styles.switchBtn}>
-          <Ionicons name="log-out-outline" size={19} color={colors.white} />
-          <Text style={styles.switchBtnText}>Log out</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.tabs}>
-        {(['book', 'offers', 'track', 'chat', 'history'] as Screen[]).map((tab) => (
-          <Pressable
-            key={tab}
-            onPress={() => {
-              if (tab === 'history') loadHistory();
-              setScreen(tab);
-            }}
-            style={[styles.tab, screen === tab && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, screen === tab && styles.tabTextActive]}>{tab}</Text>
-          </Pressable>
-        ))}
+        <View style={styles.rolePill}>
+          <MaterialCommunityIcons name="bell-ring-outline" size={17} color={colors.navy} />
+          <Text style={styles.rolePillText}>Concierge</Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
@@ -467,6 +472,57 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
           </Panel>
         ) : null}
       </ScrollView>
+      {menuOpen ? (
+        <View style={styles.menuLayer}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close navigation menu" onPress={() => setMenuOpen(false)} style={styles.menuBackdrop} />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuHead}>
+              <Image source={moroLogoMark} style={styles.menuMark} resizeMode="contain" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuEyebrow}>MORORIDE CONCIERGE</Text>
+                <Text style={styles.menuName}>{hotelName || 'Concierge desk'}</Text>
+              </View>
+              <Pressable onPress={() => setMenuOpen(false)} style={styles.menuClose}>
+                <Ionicons name="close" size={22} color={colors.navy} />
+              </Pressable>
+            </View>
+            <Text style={styles.menuSectionLabel}>CONCIERGE MENU</Text>
+            <View style={styles.menuItems}>
+              {MENU_ITEMS.map((item) => {
+                const active = item.id === screen;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => {
+                      if (item.id === 'history') loadHistory();
+                      setScreen(item.id);
+                      setMenuOpen(false);
+                    }}
+                    style={[styles.menuItem, active && styles.menuItemActive]}
+                  >
+                    <View style={[styles.menuItemIcon, active && styles.menuItemIconActive]}>
+                      <Ionicons name={(active ? item.icon : `${item.icon}-outline`) as never} size={20} color={active ? colors.white : colors.navy} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{item.label}</Text>
+                      <Text style={[styles.menuItemSub, active && styles.menuItemSubActive]}>{item.subtitle}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={active ? 'rgba(255,255,255,.7)' : colors.faded} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={() => { setMenuOpen(false); switchRole(); }} style={styles.menuLogout}>
+              <Ionicons name="log-out-outline" size={20} color={colors.rust} />
+              <Text style={styles.menuLogoutText}>Log out</Text>
+            </Pressable>
+            <View style={styles.menuFooter}>
+              <Image source={moroLogoMark} style={styles.menuFooterMark} resizeMode="contain" />
+              <Text style={styles.menuFooterText}>Your journey, our hospitality</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -533,21 +589,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.navy,
     flexDirection: 'row',
-    gap: 12,
+    gap: 11,
     minHeight: 92,
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingVertical: 14,
   },
   logo: { height: 38, width: 38 },
-  brand: { color: colors.white, fontSize: 18, fontWeight: '900' },
-  brandSub: { color: '#b9cbe0', fontSize: 12, fontWeight: '600' },
-  switchBtn: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 999, flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 9 },
-  switchBtnText: { color: colors.white, fontSize: 12, fontWeight: '800' },
-  tabs: { backgroundColor: colors.navy, flexDirection: 'row', gap: 6, paddingBottom: 12, paddingHorizontal: 12 },
-  tab: { borderRadius: 999, flex: 1, paddingVertical: 8 },
-  tabActive: { backgroundColor: colors.gold },
-  tabText: { color: '#b9cbe0', fontSize: 12, fontWeight: '800', textAlign: 'center', textTransform: 'capitalize' },
-  tabTextActive: { color: colors.navy },
+  menuButton: { alignItems: 'center', borderColor: 'rgba(255,255,255,.2)', borderRadius: 12, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
+  brand: { color: colors.white, fontSize: 19, fontWeight: '900' },
+  brandSub: { color: '#b9cbe0', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  rolePill: { alignItems: 'center', backgroundColor: colors.gold, borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 10, paddingVertical: 8 },
+  rolePillText: { color: colors.navy, fontSize: 11, fontWeight: '900' },
   body: { padding: 16, paddingBottom: 64 },
   label: { color: colors.inkSoft, fontSize: 13, fontWeight: '800', marginBottom: 6 },
   input: {
@@ -592,4 +644,40 @@ const styles = StyleSheet.create({
   imageBtn: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 999, borderWidth: 1, padding: 10 },
   composerInput: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 999, borderWidth: 1, color: colors.ink, flex: 1, paddingHorizontal: 14, paddingVertical: 10 },
   sendBtn: { backgroundColor: colors.navy, borderRadius: 999, padding: 12 },
+  menuLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80 },
+  menuBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(3,18,32,.52)' },
+  menuPanel: {
+    backgroundColor: colors.sand,
+    borderBottomRightRadius: 28,
+    borderTopRightRadius: 28,
+    elevation: 9,
+    height: '100%',
+    maxWidth: 338,
+    padding: 18,
+    shadowColor: '#061f38',
+    shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    width: '84%',
+  },
+  menuHead: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', gap: 11, paddingBottom: 16 },
+  menuMark: { height: 42, width: 42 },
+  menuEyebrow: { color: colors.rust, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  menuName: { color: colors.navy, fontSize: 16, fontWeight: '900', marginTop: 2 },
+  menuClose: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 12, borderWidth: 1, height: 38, justifyContent: 'center', width: 38 },
+  menuSectionLabel: { color: colors.rust, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10, marginTop: 18 },
+  menuItems: { gap: 8 },
+  menuItem: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, minHeight: 62, paddingHorizontal: 10 },
+  menuItemActive: { backgroundColor: colors.navy, borderColor: colors.navy },
+  menuItemIcon: { alignItems: 'center', backgroundColor: colors.blueSoft, borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
+  menuItemIconActive: { backgroundColor: 'rgba(255,255,255,.14)' },
+  menuItemText: { color: colors.navy, fontSize: 14, fontWeight: '900' },
+  menuItemTextActive: { color: colors.white },
+  menuItemSub: { color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 },
+  menuItemSubActive: { color: '#b9cbe0' },
+  menuLogout: { alignItems: 'center', backgroundColor: '#fff1ef', borderColor: '#f0c8c1', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 14, minHeight: 48, paddingHorizontal: 14 },
+  menuLogoutText: { color: colors.rust, fontSize: 14, fontWeight: '900' },
+  menuFooter: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 'auto', paddingTop: 18 },
+  menuFooterMark: { height: 30, width: 30 },
+  menuFooterText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
 });
