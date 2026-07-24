@@ -76,12 +76,14 @@ class DriverVerificationController extends ApiController
 
     public function file(DriverDocument $document): StreamedResponse
     {
-        abort_unless(Storage::exists($document->file_path), 404, 'Document file not found.');
+        $disk = $this->documentDisk($document);
+
+        abort_unless($disk, 404, 'Document file not found.');
 
         $name = $document->original_name ?: basename($document->file_path);
-        $mime = Storage::mimeType($document->file_path) ?: 'application/octet-stream';
+        $mime = Storage::disk($disk)->mimeType($document->file_path) ?: 'application/octet-stream';
 
-        return Storage::response($document->file_path, $name, [
+        return Storage::disk($disk)->response($document->file_path, $name, [
             'Content-Type' => $mime,
             'Content-Disposition' => 'inline; filename="'.$name.'"',
             'X-Content-Type-Options' => 'nosniff',
@@ -112,5 +114,16 @@ class DriverVerificationController extends ApiController
     private function assertDriver(User $driver): void
     {
         abort_unless($driver->isRole('driver'), 404, 'Driver not found.');
+    }
+
+    private function documentDisk(DriverDocument $document): ?string
+    {
+        foreach ([config('filesystems.default'), 'local', 'public'] as $disk) {
+            if ($disk && Storage::disk($disk)->exists($document->file_path)) {
+                return $disk;
+            }
+        }
+
+        return null;
     }
 }
