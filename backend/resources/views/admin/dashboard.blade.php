@@ -155,6 +155,10 @@
         .doc-meta { color:var(--muted); font-size:11.5px; line-height:1.45; overflow-wrap:anywhere; }
         .doc-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:auto; }
         .doc-viewer-modal { max-width:980px; width:min(96vw,980px); }
+        .viewer-overlay { z-index:70; background:rgba(3,18,32,.72); }
+        .doc-viewer-modal { position:relative; }
+        .doc-viewer-close { align-items:center; background:#c73e3e; border:2px solid #fff; border-radius:999px; box-shadow:0 8px 22px rgba(8,20,38,.35); color:#fff; cursor:pointer; display:flex; height:38px; justify-content:center; position:absolute; right:-12px; top:-12px; width:38px; z-index:2; }
+        .doc-viewer-close:hover { background:#9f2828; }
         .doc-viewer-body { background:#f7f3ec; padding:14px; }
         .doc-viewer-frame { align-items:center; background:#161f2c; border-radius:16px; display:flex; justify-content:center; min-height:68vh; overflow:hidden; }
         .doc-viewer-frame img { max-height:78vh; max-width:100%; object-fit:contain; }
@@ -217,6 +221,7 @@
     </div>
 
     <div class="overlay" id="overlay"></div>
+    <div class="overlay viewer-overlay" id="viewerOverlay"></div>
     <div class="toast-wrap" id="toasts"></div>
 
     <script>
@@ -298,6 +303,7 @@
 
     /* ---------- Modal ---------- */
     function closeModal() { document.getElementById('overlay').classList.remove('show'); document.getElementById('overlay').innerHTML=''; }
+    function closeViewer() { document.getElementById('viewerOverlay').classList.remove('show'); document.getElementById('viewerOverlay').innerHTML=''; }
     function infoModal(title, bodyHtml) {
         const o = document.getElementById('overlay');
         o.innerHTML = `<div class="modal"><div class="modal-head">${esc(title)}</div><div class="modal-body">${bodyHtml}</div>
@@ -479,14 +485,15 @@
         try {
             const blob = await fetchDocumentBlob(docId);
             const url = URL.createObjectURL(blob);
-            const o = document.getElementById('overlay');
+            const o = document.getElementById('viewerOverlay');
             o.innerHTML = `<div class="modal doc-viewer-modal">
+              <button class="doc-viewer-close" onclick="closeViewer()" aria-label="Close document viewer">×</button>
               <div class="modal-head">${esc(title)}</div>
               <div class="modal-body doc-viewer-body">
                 <div class="doc-viewer-frame">${isPdf ? `<iframe src="${url}" title="${esc(title)}"></iframe>` : `<img src="${url}" alt="${esc(title)}">`}</div>
                 <div class="doc-viewer-file">${esc(fileName)}</div>
               </div>
-              <div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div>
+              <div class="modal-foot"><button class="btn" onclick="closeViewer()">Close preview</button></div>
             </div>`;
             o.classList.add('show');
         } catch(e){ toast(e.message,'err'); }
