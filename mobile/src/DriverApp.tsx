@@ -806,7 +806,7 @@ function VerifyTab({ docs, uploading, onUpload, onRefresh, onView }: {
   return (
     <>
       <View style={[styles.card, styles.verifyHead]}>
-        <View style={styles.rowBetween}>
+        <View style={[styles.rowBetween, styles.notificationHead]}>
           <Text style={styles.cardTitle}>Documents</Text>
           <Text style={styles.dim}>{uploaded}/{total}</Text>
         </View>
@@ -1594,7 +1594,7 @@ const styles = StyleSheet.create({
   tabCountText: { color: colors.white, fontSize: 8, fontWeight: '900' },
 
   // Chat overlay
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,20,38,0.38)', alignItems: 'flex-end', justifyContent: 'flex-start', paddingHorizontal: 12, paddingTop: 88, zIndex: 120 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,20,38,0.38)', alignItems: 'stretch', justifyContent: 'flex-start', paddingHorizontal: 10, paddingTop: 82, zIndex: 120 },
   callOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.navy, zIndex: 120 },
   callButton: { backgroundColor: colors.success, borderColor: colors.success, width: 48 },
   chatPage: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.sand, zIndex: 100 },
@@ -1627,13 +1627,14 @@ const styles = StyleSheet.create({
   bubbleMeta: { fontSize: 10, color: colors.muted, marginBottom: 2 }, bubbleText: { fontSize: 13.5, color: colors.ink },
   chatInput: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.white, color: colors.ink },
   chatError: { color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
-  notificationSheet: { backgroundColor: '#fffefa', borderColor: colors.line, borderRadius: 26, borderWidth: 1, gap: 14, maxHeight: '74%', paddingBottom: 18, paddingHorizontal: 16, paddingTop: 18, width: '92%', maxWidth: 392, ...shadow, elevation: 18 },
+  notificationSheet: { backgroundColor: '#fffefa', borderColor: colors.line, borderRadius: 28, borderWidth: 1, gap: 12, maxHeight: '74%', padding: 14, ...shadow, elevation: 18 },
+  notificationHead: { backgroundColor: '#f6f0e8', borderRadius: 22, padding: 12 },
   notificationTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
   notificationScroll: { maxHeight: 520 },
-  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 10, overflow: 'hidden', padding: 14, paddingLeft: 16, position: 'relative' },
-  notificationItemUnread: { backgroundColor: '#fffdf8', borderColor: '#ecd8b8', elevation: 3, shadowColor: '#7a431f', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: '#f0ebe4', borderRadius: 20, borderWidth: 1, elevation: 1, flexDirection: 'row', gap: 12, marginBottom: 9, overflow: 'hidden', padding: 13, paddingLeft: 15, position: 'relative', shadowColor: '#09223d', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  notificationItemUnread: { backgroundColor: '#fffdf8', borderColor: '#ead9bf', elevation: 3, shadowColor: '#7a431f', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } },
   notificationAccent: { bottom: 0, left: 0, position: 'absolute', top: 0, width: 4 },
-  notificationItemIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 15, height: 42, justifyContent: 'center', width: 42 },
+  notificationItemIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 16, height: 44, justifyContent: 'center', width: 44 },
   notificationTopLine: { alignItems: 'center', flexDirection: 'row', gap: 7, marginBottom: 5 },
   notificationUnreadDot: { borderRadius: 4, height: 8, width: 8 },
   notificationItemLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' },
