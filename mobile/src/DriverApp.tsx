@@ -49,7 +49,7 @@ import { IncomingCallNotice, registerForPush, subscribeToIncomingCalls, unregist
 import { payWithCardSheet } from './stripeCard';
 import { VoiceCallScreen } from './VoiceCallScreen';
 import { IncomingCallPrompt } from './IncomingCallPrompt';
-import { AppNotification, CatalogCity, ChatMessage, DocChecklistItem, DriverConversation, DriverDocuments, Order, PointsPurchaseConfig, Wallet } from './types';
+import { AppNotification, CatalogCity, ChatMessage, DocChecklistItem, DriverConversation, DriverDocument, DriverDocuments, Order, PointsPurchaseConfig, Wallet } from './types';
 import { colors, radius, shadow } from './theme';
 
 const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
@@ -103,6 +103,7 @@ export default function DriverApp({ onSwitchRole, freeLaunch = false }: { onSwit
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [messageBadge, setMessageBadge] = useState(0);
   const [docs, setDocs] = useState<DriverDocuments | null>(null);
+  const [viewingDocument, setViewingDocument] = useState<DriverDocument | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [topUpBusy, setTopUpBusy] = useState(false);
   const [topUpStatus, setTopUpStatus] = useState<string | null>(null);
@@ -498,7 +499,7 @@ export default function DriverApp({ onSwitchRole, freeLaunch = false }: { onSwit
         )}
         {tab === 'rides' && <RideHistoryTab orders={history} loading={archiveLoading} onRefresh={loadHistory} onOpenChat={setChatOrderId} />}
         {tab === 'messages' && <MessagesTab conversations={conversations} loading={archiveLoading} onRefresh={loadConversations} onOpenChat={setChatOrderId} />}
-        {tab === 'verify' && <VerifyTab docs={docs} uploading={uploading} onUpload={pickAndUpload} onRefresh={loadDocs} />}
+        {tab === 'verify' && <VerifyTab docs={docs} uploading={uploading} onUpload={pickAndUpload} onRefresh={loadDocs} onView={setViewingDocument} />}
         {tab === 'wallet' && !freeLaunch && <WalletTab wallet={wallet} pointsConfig={pointsConfig} onRefresh={refreshWallet} onBuyPoints={buyPoints} onSetupPayouts={setupPayouts} topUpBusy={topUpBusy} topUpStatus={topUpStatus} />}
         {tab === 'profile' && <ProfileTab driver={driver} online={online} docs={docs} uploading={uploading} onUpload={pickAndUpload} onSwitchRole={onSwitchRole} />}
 
@@ -584,6 +585,7 @@ export default function DriverApp({ onSwitchRole, freeLaunch = false }: { onSwit
           onDecline={declineIncomingCall}
         />
       ) : null}
+      {viewingDocument ? <DocumentViewer document={viewingDocument} onClose={() => setViewingDocument(null)} onReplace={() => { const type = viewingDocument.type; setViewingDocument(null); pickAndUpload(type); }} /> : null}
       </View>
     </SafeAreaView>
   );
@@ -793,8 +795,8 @@ function formatRideDate(value?: string): string {
 }
 
 /* ---------------- Verify tab ---------------- */
-function VerifyTab({ docs, uploading, onUpload, onRefresh }: {
-  docs: DriverDocuments | null; uploading: string | null; onUpload: (type: string) => void; onRefresh: () => void;
+function VerifyTab({ docs, uploading, onUpload, onRefresh, onView }: {
+  docs: DriverDocuments | null; uploading: string | null; onUpload: (type: string) => void; onRefresh: () => void; onView: (document: DriverDocument) => void;
 }) {
   const list: DocChecklistItem[] = docs?.checklist ?? [];
   const uploaded = list.filter((d) => d.status !== 'missing').length;
@@ -817,7 +819,7 @@ function VerifyTab({ docs, uploading, onUpload, onRefresh }: {
       {list.length === 0 ? (
         <View style={[styles.card, styles.center]}><ActivityIndicator color={colors.gold} /></View>
       ) : list.map((item) => (
-        <DocRow key={item.type} item={item} uploading={uploading === item.type} onUpload={() => onUpload(item.type)} />
+        <DocRow key={item.type} item={item} uploading={uploading === item.type} onUpload={() => onUpload(item.type)} onView={onView} />
       ))}
 
       <Pressable onPress={onRefresh} style={[styles.btn, styles.btnGhost, styles.wFull]}><Text style={styles.btnGhostText}>Refresh status</Text></Pressable>
@@ -825,7 +827,7 @@ function VerifyTab({ docs, uploading, onUpload, onRefresh }: {
   );
 }
 
-function DocRow({ item, uploading, onUpload }: { item: DocChecklistItem; uploading: boolean; onUpload: () => void }) {
+function DocRow({ item, uploading, onUpload, onView }: { item: DocChecklistItem; uploading: boolean; onUpload: () => void; onView: (document: DriverDocument) => void }) {
   const st = item.status;
   const badge = st === 'approved' ? { bg: colors.greenSoft, fg: colors.success, label: 'Approved' }
     : st === 'rejected' ? { bg: '#fbecec', fg: colors.danger, label: 'Rejected' }
@@ -838,10 +840,89 @@ function DocRow({ item, uploading, onUpload }: { item: DocChecklistItem; uploadi
         <Text style={styles.docTitle}>{DOC_LABELS[item.type] ?? item.type}</Text>
         <View style={[styles.badge, { backgroundColor: badge.bg }]}><Text style={[styles.badgeText, { color: badge.fg }]}>{badge.label}</Text></View>
       </View>
-      <Pressable style={[styles.btn, styles.btnSm, st === 'missing' ? styles.btnPrimary : styles.btnGhost]} disabled={uploading} onPress={onUpload}>
-        {uploading ? <ActivityIndicator size="small" color={st === 'missing' ? colors.white : colors.navy} />
-          : <Text style={st === 'missing' ? styles.btnPrimaryText : styles.btnGhostText}>{st === 'missing' ? 'Upload' : 'Replace'}</Text>}
-      </Pressable>
+      <View style={styles.docActions}>
+        {item.document ? (
+          <Pressable style={[styles.btn, styles.btnSm, styles.btnGhost]} onPress={() => onView(item.document as DriverDocument)}>
+            <Text style={styles.btnGhostText}>View</Text>
+          </Pressable>
+        ) : null}
+        <Pressable style={[styles.btn, styles.btnSm, st === 'missing' ? styles.btnPrimary : styles.btnGhost]} disabled={uploading} onPress={onUpload}>
+          {uploading ? <ActivityIndicator size="small" color={st === 'missing' ? colors.white : colors.navy} />
+            : <Text style={st === 'missing' ? styles.btnPrimaryText : styles.btnGhostText}>{st === 'missing' ? 'Upload' : 'Replace'}</Text>}
+        </Pressable>
+      </View>
+      {st === 'rejected' && item.document?.note ? (
+        <View style={styles.docRejectNote}>
+          <Ionicons name="alert-circle-outline" size={17} color={colors.danger} />
+          <Text style={styles.docRejectText}>{item.document.note}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function DocumentViewer({ document, onClose, onReplace }: { document: DriverDocument; onClose: () => void; onReplace: () => void }) {
+  const [token, setToken] = useState<string | null>(null);
+  const title = DOC_LABELS[document.type] ?? document.type;
+  const fileName = document.file_name || document.original_name || document.file_path || 'Uploaded document';
+  const fileUrl = document.driver_file_url;
+  const canPreviewImage = Boolean(fileUrl && document.is_image);
+
+  useEffect(() => {
+    getAccessToken().then(setToken).catch(() => setToken(null));
+  }, []);
+
+  return (
+    <View style={styles.documentViewerLayer}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.documentViewerPanel}>
+        <View style={styles.documentViewerHead}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eyebrow}>DOCUMENT REVIEW</Text>
+            <Text style={styles.documentViewerTitle}>{title}</Text>
+          </View>
+          <Pressable onPress={onClose} style={styles.viewerCloseButton}>
+            <Ionicons name="close" size={22} color={colors.danger} />
+          </Pressable>
+        </View>
+
+        <View style={styles.documentPreviewBox}>
+          {canPreviewImage && token ? (
+            <Image
+              source={{ uri: fileUrl as string, headers: { Authorization: `Bearer ${token}` } }}
+              resizeMode="contain"
+              style={styles.documentPreviewImage}
+            />
+          ) : (
+            <View style={styles.documentPreviewFallback}>
+              <Ionicons name={document.is_pdf ? 'document-text-outline' : 'image-outline'} size={44} color={colors.muted} />
+              <Text style={styles.dim}>{document.is_pdf ? 'PDF preview is not available in-app.' : 'Preview is not available for this file type.'}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.documentInfoBox}>
+          <Text style={styles.documentFileName}>{fileName}</Text>
+          <View style={[styles.badge, { backgroundColor: document.status === 'rejected' ? '#fbecec' : colors.greenSoft }]}>
+            <Text style={[styles.badgeText, { color: document.status === 'rejected' ? colors.danger : colors.success }]}>{document.status.toUpperCase()}</Text>
+          </View>
+        </View>
+
+        {document.note ? (
+          <View style={styles.documentNoteBox}>
+            <Ionicons name="chatbox-ellipses-outline" size={20} color={colors.danger} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.documentNoteTitle}>Admin message</Text>
+              <Text style={styles.documentNoteText}>{document.note}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.documentViewerActions}>
+          <Pressable onPress={onClose} style={[styles.btn, styles.btnGhost, { flex: 1 }]}><Text style={styles.btnGhostText}>Close</Text></Pressable>
+          <Pressable onPress={onReplace} style={[styles.btn, styles.btnPrimary, { flex: 1 }]}><Text style={styles.btnPrimaryText}>Replace document</Text></Pressable>
+        </View>
+      </View>
     </View>
   );
 }
@@ -1382,11 +1463,29 @@ const styles = StyleSheet.create({
   verifyHead: { gap: 8 },
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: '#ece7de', overflow: 'hidden' },
   progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.gold },
-  docRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 12 },
+  docRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 12, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 12 },
   docIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.blueSoft, alignItems: 'center', justifyContent: 'center' },
   docTitle: { fontSize: 14, fontWeight: '700', color: colors.ink, marginBottom: 4 },
+  docActions: { alignItems: 'center', flexDirection: 'row', gap: 7 },
+  docRejectNote: { alignItems: 'flex-start', backgroundColor: '#fff1ef', borderColor: '#f0c8c1', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 8, padding: 10, width: '100%' },
+  docRejectText: { color: colors.danger, flex: 1, fontSize: 12, fontWeight: '700', lineHeight: 17 },
   badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   badgeText: { fontSize: 11, fontWeight: '800' },
+
+  documentViewerLayer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', backgroundColor: 'rgba(8,20,38,.55)', justifyContent: 'center', padding: 14, zIndex: 150 },
+  documentViewerPanel: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 24, borderWidth: 1, maxHeight: '90%', maxWidth: 430, padding: 16, width: '100%', ...shadow, elevation: 20 },
+  documentViewerHead: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 12 },
+  documentViewerTitle: { color: colors.navy, fontSize: 20, fontWeight: '900', marginTop: 2 },
+  viewerCloseButton: { alignItems: 'center', backgroundColor: '#fff1ef', borderColor: '#f0c8c1', borderRadius: 14, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
+  documentPreviewBox: { alignItems: 'center', backgroundColor: '#101923', borderRadius: 18, justifyContent: 'center', minHeight: 260, overflow: 'hidden' },
+  documentPreviewImage: { height: 320, width: '100%' },
+  documentPreviewFallback: { alignItems: 'center', gap: 10, padding: 28 },
+  documentInfoBox: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between', marginTop: 12 },
+  documentFileName: { color: colors.ink, flex: 1, fontSize: 13, fontWeight: '800' },
+  documentNoteBox: { alignItems: 'flex-start', backgroundColor: '#fff1ef', borderColor: '#f0c8c1', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 12, padding: 12 },
+  documentNoteTitle: { color: colors.danger, fontSize: 12, fontWeight: '900', marginBottom: 3 },
+  documentNoteText: { color: colors.ink, fontSize: 13, fontWeight: '700', lineHeight: 19 },
+  documentViewerActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
 
   // Wallet
   balanceCard: { backgroundColor: colors.navy, borderColor: colors.navy, alignItems: 'flex-start', gap: 4 },

@@ -102,6 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/payments/connect/onboarding', [DriverPaymentController::class, 'connectOnboarding']);
         Route::get('/payments/connect/status', [DriverPaymentController::class, 'connectStatus']);
         Route::get('/documents', [DriverDocumentController::class, 'index']);
+        Route::get('/documents/{document}/file', [DriverDocumentController::class, 'file']);
         Route::post('/documents', [DriverDocumentController::class, 'store']);
     });
 

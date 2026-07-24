@@ -28,6 +28,9 @@ class DriverDocumentResource extends JsonResource
             'admin_file_url' => $request->user()?->isRole('admin')
                 ? url("/api/admin/documents/{$this->id}/file")
                 : null,
+            'driver_file_url' => $request->user()?->isRole('driver') && (int) $request->user()->id === (int) $this->user_id
+                ? url("/api/driver/documents/{$this->id}/file")
+                : null,
             'note' => $this->note,
             'reviewed_by' => $this->reviewed_by,
             'reviewed_at' => $this->reviewed_at,

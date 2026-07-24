@@ -257,6 +257,11 @@ export type DriverDocument = {
   status: string;
   file_path?: string;
   original_name?: string | null;
+  file_name?: string | null;
+  extension?: string | null;
+  is_image?: boolean;
+  is_pdf?: boolean;
+  driver_file_url?: string | null;
   note?: string | null;
   created_at?: string;
   preview_url?: string | null;
