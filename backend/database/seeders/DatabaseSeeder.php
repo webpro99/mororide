@@ -238,6 +238,9 @@ class DatabaseSeeder extends Seeder
             ['key' => 'support_phone', 'value' => '+212600000000', 'type' => 'string', 'group' => 'general', 'label' => 'Support phone'],
             ['key' => 'default_currency', 'value' => 'MAD', 'type' => 'string', 'group' => 'billing', 'label' => 'Default currency'],
             ['key' => 'min_points_topup', 'value' => '100', 'type' => 'number', 'group' => 'billing', 'label' => 'Minimum points top-up'],
+            ['key' => 'billing.free_launch_enabled', 'value' => '0', 'type' => 'boolean', 'group' => 'billing', 'label' => 'Free launch mode / billing off'],
+            ['key' => 'billing.free_launch_title', 'value' => 'Free during launch — all features unlocked while we build the network.', 'type' => 'string', 'group' => 'billing', 'label' => 'Free launch banner title'],
+            ['key' => 'billing.free_launch_body', 'value' => 'No payment needed today. These are the plans that will apply when billing starts.', 'type' => 'string', 'group' => 'billing', 'label' => 'Free launch banner body'],
             ['key' => 'driver_auto_approve', 'value' => '0', 'type' => 'boolean', 'group' => 'verification', 'label' => 'Auto-approve drivers'],
             ['key' => 'maintenance_mode', 'value' => '0', 'type' => 'boolean', 'group' => 'general', 'label' => 'Maintenance mode'],
         ];

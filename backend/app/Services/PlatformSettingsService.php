@@ -8,13 +8,18 @@ use Illuminate\Support\Collection;
 
 class PlatformSettingsService
 {
-    public function __construct(private AuditLogService $auditLogService) {}
+    public function __construct(
+        private AuditLogService $auditLogService,
+        private BillingModeService $billingMode
+    ) {}
 
     /**
      * @return Collection<int, PlatformSetting>
      */
     public function all(): Collection
     {
+        $this->billingMode->ensureDefaults();
+
         return PlatformSetting::where('group', '!=', PaymentConfigurationService::GROUP)
             ->orderBy('group')
             ->orderBy('key')

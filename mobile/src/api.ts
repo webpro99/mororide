@@ -11,10 +11,12 @@ import {
   DriverDocument,
   DriverDocuments,
   DriverConversation,
+  FareEstimate,
   DriverProfile,
   Order,
   OrderOffer,
   PaymentIntentResponse,
+  PlatformMode,
   Rating,
   RidePaymentIntent,
   RideConversation,
@@ -345,12 +347,27 @@ export function getRiderConversations() {
   return request<RideConversation[] | Paged<RideConversation>>('/rider/conversations').then(asList);
 }
 
+export function getPlatformMode() {
+  return request<PlatformMode>('/platform-mode');
+}
+
+export function estimateFare(payload: { distance_km: number; eta_min: number; pax?: number; vehicle_type?: string }) {
+  return request<FareEstimate>('/fares/estimate', { method: 'POST', body: payload });
+}
+
 export function getRiderOrder(orderId: number) {
   return request<Order>(`/rider/orders/${orderId}`);
 }
 
 export function getRiderOffers(orderId: number) {
   return request<OrderOffer[]>(`/rider/orders/${orderId}/offers`);
+}
+
+export function getVoiceCallToken(orderId: number, notify = true) {
+  return request<{ server_url: string; participant_token: string; room_name: string; order_id: number }>(
+    `/orders/${orderId}/voice-call/token`,
+    { method: 'POST', body: { notify } },
+  );
 }
 
 export function chooseRiderOffer(orderId: number, offerId: number) {

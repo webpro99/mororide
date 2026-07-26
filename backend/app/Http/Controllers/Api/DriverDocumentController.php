@@ -8,6 +8,8 @@ use App\Models\DriverDocument;
 use App\Models\DriverDocumentRequest;
 use App\Services\DriverVerificationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverDocumentController extends ApiController
 {
@@ -54,5 +56,34 @@ class DriverDocumentController extends ApiController
         }
 
         return $this->ok(new DriverDocumentResource($document), 'Document uploaded', 201);
+    }
+
+    public function file(Request $request, DriverDocument $document): StreamedResponse
+    {
+        abort_unless((int) $document->user_id === (int) $request->user()->id, 404);
+
+        $disk = $this->documentDisk($document);
+
+        abort_unless($disk, 404, 'Document file not found.');
+
+        $name = $document->original_name ?: basename($document->file_path);
+        $mime = Storage::disk($disk)->mimeType($document->file_path) ?: 'application/octet-stream';
+
+        return Storage::disk($disk)->response($document->file_path, $name, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="'.$name.'"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function documentDisk(DriverDocument $document): ?string
+    {
+        foreach ([config('filesystems.default'), 'local', 'public'] as $disk) {
+            if ($disk && Storage::disk($disk)->exists($document->file_path)) {
+                return $disk;
+            }
+        }
+
+        return null;
     }
 }

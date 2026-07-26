@@ -10,6 +10,141 @@
 
 ---
 
+## Latest VPS / Mobile Delivery - July 2026
+
+This repository is currently deployed and tested on the MoroRide VPS:
+
+```txt
+Domain: https://mororide.com
+Server IP: 187.124.222.163
+Backend: /var/www/mororide/backend
+Mobile app: /root/mororide/mobile
+Latest test APK: https://mororide.com/mororide-voip-test.apk
+Latest APK SHA-256: 44a85b7c14a393392d5a43c3f629ffc1e50d6da8ddf84be6d4ce962aaeace654
+```
+
+### Production Server Work Completed
+
+- `mororide.com` is pointed at the VPS and served through Nginx with HTTPS/SSL.
+- Laravel backend is installed under `/var/www/mororide/backend`.
+- Reverb realtime traffic is proxied through Nginx.
+- LiveKit is installed as a systemd service for free self-hosted in-ride VoIP:
+  - client URL: `wss://mororide.com`
+  - Nginx paths: `/rtc` and `/twirp/`
+  - service: `livekit.service`
+- Metro file watcher limits were increased for Expo development:
+
+```txt
+fs.inotify.max_user_watches=524288
+fs.inotify.max_user_instances=1024
+```
+
+### Mobile App Work Completed
+
+The Expo mobile app has been upgraded and tested on SDK 54.
+
+Major mobile changes now included:
+
+- Unified safe-area layout so app headers and footers do not overlap Android system bars.
+- Full redesign pass across rider, driver, concierge, signup, login, offers, driver profile, verification, wallet, chat, ride complete, and tracking screens.
+- Hamburger navigation/menu added for role dashboards.
+- Logout added across roles.
+- Driver verification UX improved; approved drivers no longer keep seeing the stale verification banner.
+- Driver document upload and persistence flow remains connected to backend storage/database.
+- Driver free rides/points/wallet UI added, including the two free rides shown after approval.
+- Rider pickup/drop-off UX improved with clear selection behavior and full reset after ride cancellation.
+- Rider offer cards and driver profile cards redesigned for smaller Android screens.
+- Notifications panel redesigned so it opens as a full-width mobile sheet instead of a cropped panel.
+- Message/chat screen moved away from Android navigation controls.
+
+### Maps
+
+Google native maps were removed from the APK flow because the APK did not have a configured Google Maps API key and Android could crash when opening pickup selection.
+
+The app now uses a free OpenStreetMap/Leaflet map inside `react-native-webview` for:
+
+- pickup selection;
+- drop-off selection;
+- route preview;
+- driver/rider map display fallback.
+
+This avoids Google billing/API-key requirements for the test build and prevents the Android map crash.
+
+### Location
+
+- Rider pickup/drop-off picker asks for foreground location permission.
+- The picker defaults to the user's detected location when permission is granted.
+- Driver foreground GPS publishing is connected while the driver is online.
+- Background GPS is still a production follow-up because it requires a dedicated native/background task setup and device testing.
+
+### Payments / Stripe Test Mode
+
+- Stripe test-mode card payment flow exists through native Stripe PaymentSheet in the APK.
+- Driver points top-up is connected to Stripe test PaymentSheet.
+- Wallet refresh polling was added after a successful top-up so the balance updates after webhook confirmation.
+- Admin payment settings remain the source of truth for Stripe keys and webhook secrets.
+- Live Stripe use still depends on a lawful supported-country Stripe entity or a Morocco-compatible provider such as CMI/Payzone.
+
+### Free VoIP Calling
+
+In-ride audio calling is implemented with self-hosted LiveKit, so there is no per-minute Twilio-style cost for the test flow.
+
+Current behavior:
+
+- Rider can call driver during an active ride.
+- Driver can call rider during an active ride.
+- The caller joins the LiveKit room and notifies the other participant.
+- The receiver now gets an incoming-call prompt with Answer and Decline.
+- The incoming-call prompt vibrates the phone while the app is foregrounded.
+- Push notifications include sound for background/locked-app delivery when Android notification permissions are enabled.
+- Answer joins the call without requiring the receiver to press the call icon manually.
+- Decline closes the prompt and marks the notification read.
+
+Important caveat:
+
+- Full native background ringing like WhatsApp/Phone requires platform call integrations such as Android ConnectionService / iOS CallKit plus APNs/FCM production credentials. The current implementation provides in-app ringing/prompt plus Expo push notification sound.
+
+### Expo Development
+
+Expo Go is launched in a detached screen session for iterative testing:
+
+```bash
+screen -r mororide-expo
+```
+
+The current development command is:
+
+```bash
+cd /root/mororide/mobile
+npx expo start --go --tunnel --clear
+```
+
+For JS-only changes, test in Expo first. Build a new APK only when native dependencies/configuration changed or when a final Android test build is needed.
+
+Useful mobile checks:
+
+```bash
+cd /root/mororide/mobile
+npm run typecheck
+```
+
+Build Android release APK locally:
+
+```bash
+cd /root/mororide/mobile/android
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/opt/android-sdk ./gradlew assembleRelease
+```
+
+Publish the current test APK to the domain:
+
+```bash
+install -m 0644 /root/mororide/mobile/android/app/build/outputs/apk/release/app-release.apk /var/www/mororide/backend/public/mororide-voip-test.apk.new
+mv /var/www/mororide/backend/public/mororide-voip-test.apk.new /var/www/mororide/backend/public/mororide-voip-test.apk
+nginx -s reload
+```
+
+---
+
 ## 1. Product Understanding
 
 MoroRide is an **InDrive-style ride marketplace for Morocco tourism**.

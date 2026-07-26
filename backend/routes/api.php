@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\DriverPaymentController;
 use App\Http\Controllers\Api\FareController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\PlatformModeController;
 use App\Http\Controllers\Api\RiderOrderController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -38,6 +39,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/catalog', [CatalogController::class, 'index']);
+Route::get('/platform-mode', PlatformModeController::class);
 Route::get('/notifications', [NotificationController::class, 'index']);
 Route::post('/fares/estimate', [FareController::class, 'estimate']);
 Route::get('/fare-config', [FareController::class, 'show']);
@@ -100,6 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/payments/connect/onboarding', [DriverPaymentController::class, 'connectOnboarding']);
         Route::get('/payments/connect/status', [DriverPaymentController::class, 'connectStatus']);
         Route::get('/documents', [DriverDocumentController::class, 'index']);
+        Route::get('/documents/{document}/file', [DriverDocumentController::class, 'file']);
         Route::post('/documents', [DriverDocumentController::class, 'store']);
     });
 
@@ -128,10 +131,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/drivers/{driver}/approve', [DriverVerificationController::class, 'approve']);
         Route::post('/drivers/{driver}/reject', [DriverVerificationController::class, 'reject']);
         Route::post('/drivers/{driver}/request-document', [DriverVerificationController::class, 'requestDocument']);
+        Route::get('/documents/{document}/file', [DriverVerificationController::class, 'file']);
+        Route::post('/documents/{document}/review', [DriverVerificationController::class, 'reviewDocument']);
 
         // Fare config
         Route::get('/fare-config', [FareConfigController::class, 'show']);
         Route::post('/fare-config', [FareConfigController::class, 'store']);
+        Route::post('/fare-config/{fareConfig}/activate', [FareConfigController::class, 'activate']);
+        Route::post('/fare-config/{fareConfig}/deactivate', [FareConfigController::class, 'deactivate']);
 
         // Transactions / revenue
         Route::get('/transactions', [AdminTransactionController::class, 'index']);

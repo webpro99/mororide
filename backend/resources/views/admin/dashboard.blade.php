@@ -118,6 +118,7 @@
         .switch-line { display:flex; align-items:center; gap:9px; min-height:36px; font-weight:700; }
         .notice { padding:12px 14px; border-radius:12px; background:var(--amber-bg); color:#71531d; line-height:1.55; }
         .notice.info { background:var(--blue-bg); color:#184d82; }
+        .notice.ok { background:#e7f7ee; color:#23633e; }
         .secret-state { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
         .code-box { padding:10px 12px; border:1px dashed #c8c2b7; background:#faf8f4; border-radius:10px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
         .event-list { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
@@ -131,16 +132,49 @@
         /* Modal */
         .overlay { position:fixed; inset:0; background:rgba(8,20,38,.5); display:none; align-items:center; justify-content:center; z-index:50; padding:20px; }
         .overlay.show { display:flex; }
-        .modal { background:#fff; border-radius:16px; width:min(520px,100%); max-height:88vh; overflow:auto; box-shadow:0 30px 70px rgba(8,20,38,.35); }
-        .modal-head { padding:18px 20px; border-bottom:1px solid var(--line); font-weight:900; color:var(--navy); font-size:16px; }
-        .modal-body { padding:18px 20px; display:grid; gap:14px; }
+        .modal { background:#fff; border-radius:22px; width:min(520px,100%); max-height:88vh; overflow:hidden; box-shadow:0 30px 70px rgba(8,20,38,.35); display:flex; flex-direction:column; }
+        .modal-head { align-items:center; background:#fff; border-bottom:1px solid var(--line); color:var(--navy); display:flex; font-size:16px; font-weight:900; gap:12px; justify-content:space-between; padding:16px 18px 14px 20px; position:sticky; top:0; z-index:3; }
+        .modal-body { padding:18px 20px; display:grid; gap:14px; overflow:auto; }
         .modal-body label { font-size:12.5px; font-weight:700; }
         .modal-body .fld { display:grid; gap:6px; }
         .modal-body input, .modal-body select, .modal-body textarea { width:100%; }
-        .modal-foot { padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
+        .modal-foot { background:#fff; padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
+        .modal { position:relative; }
+        .modal-close-red { align-items:center; background:#fff1ef; border:1px solid #f0c8c1; border-radius:14px; color:#b83e3e; cursor:pointer; display:flex; font-size:24px; font-weight:900; height:40px; justify-content:center; line-height:1; width:40px; flex:0 0 auto; }
+        .modal-close-red:hover { background:#b83e3e; border-color:#b83e3e; color:#fff; }
         .kv { display:grid; grid-template-columns: 130px 1fr; gap:6px 12px; font-size:13px; }
         .kv dt { color:var(--muted); font-weight:600; }
         .chk { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0ece3; }
+        .docs-modal { width:min(94vw,880px); }
+        .docs-modal .modal-body { background:#fff; padding:18px 22px 22px; }
+        .doc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; width:100%; }
+        .doc-card { border:1px solid var(--line); border-radius:14px; background:#fff; overflow:hidden; display:flex; flex-direction:column; min-height:250px; }
+        .doc-preview { height:132px; background:#f4f1eb; cursor:pointer; display:grid; place-items:center; color:var(--muted); border-bottom:1px solid var(--line); overflow:hidden; position:relative; }
+        .doc-preview:after { align-items:center; background:rgba(8,47,79,.72); color:#fff; content:'Click to enlarge'; display:flex; font-size:12px; font-weight:900; inset:auto 10px 10px 10px; justify-content:center; opacity:0; padding:7px 10px; position:absolute; border-radius:999px; transition:.15s ease; }
+        .doc-preview:hover:after { opacity:1; }
+        .doc-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+        .doc-preview .doc-icon { font-size:34px; opacity:.75; }
+        .doc-preview.loading .doc-icon { animation:pulse 1s ease-in-out infinite; }
+        .doc-body { padding:12px; display:grid; gap:8px; flex:1; }
+        .doc-title { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:900; color:var(--navy); }
+        .doc-meta { color:var(--muted); font-size:11.5px; line-height:1.45; overflow-wrap:anywhere; }
+        .doc-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:auto; }
+        .doc-viewer-modal { max-width:980px; width:min(96vw,980px); }
+        .viewer-overlay { z-index:70; background:rgba(3,18,32,.72); }
+        .doc-viewer-body { background:#f7f3ec; padding:14px; }
+        .doc-viewer-frame { align-items:center; background:#161f2c; border-radius:16px; display:flex; justify-content:center; min-height:68vh; overflow:hidden; }
+        .doc-viewer-frame img { max-height:78vh; max-width:100%; object-fit:contain; }
+        .doc-viewer-frame iframe { background:#fff; border:0; height:78vh; width:100%; }
+        .doc-viewer-file { color:var(--muted); font-size:12px; font-weight:700; margin-top:10px; overflow-wrap:anywhere; }
+        @keyframes pulse { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+        .fare-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+        .fare-form .wide { grid-column:1 / -1; }
+        .fare-preview { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:12px; }
+        .fare-status { align-items:center; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px; }
+        .fare-status-dot { border-radius:999px; height:12px; width:12px; }
+        .fare-status-dot.on { background:#2f8f5b; box-shadow:0 0 0 5px #dff3e8; }
+        .fare-status-dot.off { background:#a6a096; box-shadow:0 0 0 5px #eee8df; }
+        @media (max-width: 900px) { .fare-form { grid-template-columns:1fr; } .fare-form .wide { grid-column:auto; } .overlay { padding:10px; } .docs-modal { width:100%; } .doc-grid { grid-template-columns:1fr; } }
         .msg { padding:10px 12px; border-radius:12px; background:#f5f2ec; margin-bottom:8px; }
         .msg .meta { font-size:11px; color:var(--muted); margin-bottom:3px; }
 
@@ -189,16 +223,27 @@
     </div>
 
     <div class="overlay" id="overlay"></div>
+    <div class="overlay viewer-overlay" id="viewerOverlay"></div>
     <div class="toast-wrap" id="toasts"></div>
 
     <script>
     const TOKEN_KEY = 'mororide_admin_token';
     const DOC_TYPES = ['profile','vehicle_out','vehicle_in','id_front','id_back','license','tourism_agreement'];
+    const DOC_LABELS = {
+        profile: 'Profile photo',
+        vehicle_out: 'Vehicle exterior',
+        vehicle_in: 'Vehicle interior',
+        id_front: 'ID card front',
+        id_back: 'ID card back',
+        license: 'Driving license',
+        tourism_agreement: 'Tourism agreement',
+    };
 
     const SECTIONS = [
         { id:'dashboard', label:'Dashboard', icon:'📊' },
         { id:'users', label:'Users', icon:'👥' },
         { id:'drivers', label:'Drivers & Verification', icon:'🪪' },
+        { id:'fares', label:'Fare Pricing', icon:'🧮' },
         { id:'orders', label:'Orders', icon:'🚕' },
         { id:'wallets', label:'Wallets & Points', icon:'👛' },
         { id:'transactions', label:'Transactions & Revenue', icon:'💰' },
@@ -260,9 +305,10 @@
 
     /* ---------- Modal ---------- */
     function closeModal() { document.getElementById('overlay').classList.remove('show'); document.getElementById('overlay').innerHTML=''; }
-    function infoModal(title, bodyHtml) {
+    function closeViewer() { document.getElementById('viewerOverlay').classList.remove('show'); document.getElementById('viewerOverlay').innerHTML=''; }
+    function infoModal(title, bodyHtml, modalClass='') {
         const o = document.getElementById('overlay');
-        o.innerHTML = `<div class="modal"><div class="modal-head">${esc(title)}</div><div class="modal-body">${bodyHtml}</div>
+        o.innerHTML = `<div class="modal ${esc(modalClass)}"><div class="modal-head"><span>${esc(title)}</span><button class="modal-close-red" onclick="closeModal()" aria-label="Close modal">×</button></div><div class="modal-body">${bodyHtml}</div>
             <div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
         o.classList.add('show');
     }
@@ -281,10 +327,11 @@
                 }
                 return `<div class="fld"><label for="${id}">${esc(f.label)}</label><input id="${id}" type="${f.type||'text'}" value="${esc(f.value??'')}" placeholder="${esc(f.placeholder||'')}"></div>`;
             }).join('');
-            o.innerHTML = `<div class="modal"><div class="modal-head">${esc(title)}</div>
+            o.innerHTML = `<div class="modal"><div class="modal-head"><span>${esc(title)}</span><button class="modal-close-red" id="mX" aria-label="Close modal">×</button></div>
                 <div class="modal-body">${fieldHtml}</div>
                 <div class="modal-foot"><button class="btn" id="mCancel">Cancel</button><button class="btn primary" id="mOk">${esc(submitLabel)}</button></div></div>`;
             o.classList.add('show');
+            document.getElementById('mX').onclick = () => { closeModal(); resolve(null); };
             document.getElementById('mCancel').onclick = () => { closeModal(); resolve(null); };
             document.getElementById('mOk').onclick = () => {
                 const out = {};
@@ -381,9 +428,89 @@
         try {
             const p = await api('GET', `/api/admin/drivers/${id}/documents`);
             const d = p.data;
-            const chk = d.checklist.map(c => `<div class="chk"><span>${esc(c.type)}</span>${statusBadge(c.status)}</div>`).join('');
+            const cards = d.checklist.map(c => {
+                const doc = c.document;
+                const label = DOC_LABELS[c.type] || c.type;
+                if (!doc) {
+                    return `<div class="doc-card">
+                      <div class="doc-preview"><span class="doc-icon">＋</span></div>
+                      <div class="doc-body">
+                        <div class="doc-title"><span>${esc(label)}</span>${statusBadge('missing')}</div>
+                        <div class="doc-meta">No file uploaded yet.</div>
+                        <div class="doc-actions"><button class="btn sm" onclick="requestDoc(${id}, '${esc(c.type)}')">Request</button></div>
+                      </div>
+                    </div>`;
+                }
+
+                return `<div class="doc-card">
+                  <div class="doc-preview loading" id="docPrev${doc.id}" onclick="showDocument(${doc.id}, '${esc(label)}', '${esc(doc.file_name || doc.original_name || doc.file_path)}', ${doc.is_pdf ? 'true' : 'false'})"><span class="doc-icon">Loading…</span></div>
+                  <div class="doc-body">
+                    <div class="doc-title"><span>${esc(label)}</span>${statusBadge(doc.status)}</div>
+                    <div class="doc-meta">${esc(doc.file_name || doc.original_name || doc.file_path)}<br>Uploaded ${dt(doc.created_at)}${doc.note ? `<br><b>Note:</b> ${esc(doc.note)}` : ''}</div>
+                    <div class="doc-actions">
+                      <button class="btn sm" onclick="showDocument(${doc.id}, '${esc(label)}', '${esc(doc.file_name || doc.original_name || doc.file_path)}', ${doc.is_pdf ? 'true' : 'false'})">View</button>
+                      <button class="btn sm ok" onclick="reviewDocument(${doc.id}, 'approved', ${id})">Approve</button>
+                      <button class="btn sm danger" onclick="reviewDocument(${doc.id}, 'rejected', ${id})">Reject</button>
+                      <button class="btn sm" onclick="requestDoc(${id}, '${esc(c.type)}')">Request new</button>
+                    </div>
+                  </div>
+                </div>`;
+            }).join('');
             infoModal(`Documents — ${esc(d.driver?.name||('#'+id))}`,
-                `<div>${chk}</div><p class="muted" style="margin-top:12px">All required uploaded: <b>${d.has_all_required?'Yes':'No'}</b></p>`);
+                `<div class="notice info"><b>${d.has_all_required ? 'All required files are uploaded.' : 'Some required files are still missing.'}</b><br>Open each document, then approve, reject, or request a replacement from the driver.</div>
+                 <div class="doc-grid">${cards}</div>`, 'docs-modal');
+            for (const c of d.checklist) {
+                if (c.document) loadDocumentPreview(c.document.id, c.document.is_pdf);
+            }
+        } catch(e){ toast(e.message,'err'); }
+    };
+    window.fetchDocumentBlob = async (docId) => {
+        const res = await fetch(`/api/admin/documents/${docId}/file`, {
+            headers: { Authorization: `Bearer ${token()}`, Accept: '*/*' },
+        });
+        if (!res.ok) throw new Error('Could not open document');
+        return res.blob();
+    };
+    window.loadDocumentPreview = async (docId, isPdf=false) => {
+        const box = document.getElementById(`docPrev${docId}`);
+        if (!box) return;
+        try {
+            const blob = await fetchDocumentBlob(docId);
+            const url = URL.createObjectURL(blob);
+            box.classList.remove('loading');
+            box.innerHTML = isPdf ? '<span class="doc-icon">PDF</span>' : `<img src="${url}" alt="Document preview">`;
+        } catch (_) {
+            box.classList.remove('loading');
+            box.innerHTML = '<span class="doc-icon">📄</span>';
+        }
+    };
+    window.showDocument = async (docId, title='Document', fileName='', isPdf=false) => {
+        try {
+            const blob = await fetchDocumentBlob(docId);
+            const url = URL.createObjectURL(blob);
+            const o = document.getElementById('viewerOverlay');
+            o.innerHTML = `<div class="modal doc-viewer-modal">
+              <div class="modal-head"><span>${esc(title)}</span><button class="modal-close-red" onclick="closeViewer()" aria-label="Close document viewer">×</button></div>
+              <div class="modal-body doc-viewer-body">
+                <div class="doc-viewer-frame">${isPdf ? `<iframe src="${url}" title="${esc(title)}"></iframe>` : `<img src="${url}" alt="${esc(title)}">`}</div>
+                <div class="doc-viewer-file">${esc(fileName)}</div>
+              </div>
+              <div class="modal-foot"><button class="btn" onclick="closeViewer()">Close preview</button></div>
+            </div>`;
+            o.classList.add('show');
+        } catch(e){ toast(e.message,'err'); }
+    };
+    window.reviewDocument = async (docId, status, driverId) => {
+        let note = null;
+        if (status === 'rejected') {
+            const r = await formModal('Reject document', [{ name:'note', label:'Reason / note', type:'textarea', placeholder:'Tell the driver what must be fixed.' }], 'Reject');
+            if (!r) return;
+            note = r.note || null;
+        }
+        try {
+            await api('POST', `/api/admin/documents/${docId}/review`, { status, ...(note ? { note } : {}) });
+            toast(status === 'approved' ? 'Document approved' : 'Document rejected');
+            await viewDocs(driverId);
         } catch(e){ toast(e.message,'err'); }
     };
     window.approveDriver = async (id) => {
@@ -396,13 +523,113 @@
         try { await api('POST', `/api/admin/drivers/${id}/reject`, r); toast('Driver rejected'); render.drivers(); }
         catch(e){ toast(e.message,'err'); }
     };
-    window.requestDoc = async (id) => {
+    window.requestDoc = async (id, initialType='profile') => {
         const r = await formModal('Request a document', [
-            { name:'type', label:'Document', type:'select', options: DOC_TYPES.map(t=>({value:t,label:t})) },
+            { name:'type', label:'Document', type:'select', value:initialType, options: DOC_TYPES.map(t=>({value:t,label:DOC_LABELS[t] || t})) },
             { name:'note', label:'Note (optional)', type:'textarea' },
         ], 'Request');
         if (!r) return;
         try { await api('POST', `/api/admin/drivers/${id}/request-document`, r); toast('Document requested'); }
+        catch(e){ toast(e.message,'err'); }
+    };
+
+    render.fares = async () => {
+        loading();
+        const p = await api('GET', '/api/admin/fare-config');
+        const active = p.data.active || null;
+        const history = p.data.history || [];
+        const draft = active || history[0] || {};
+        const value = (key, fallback='') => esc(draft[key] ?? fallback);
+        const rows = history.map(f => `
+            <tr>
+              <td>${f.id}</td><td>${money(f.base)}</td><td>${money(f.per_km)}</td><td>${money(f.per_min)}</td>
+              <td>${money(f.floor)}</td><td>${Number(f.platform_fee_pct || 0) * 100}%</td>
+              <td>${statusBadge(f.is_active ? 'active' : 'inactive')}</td><td>${dt(f.active_from || f.created_at)}</td>
+              <td class="row-actions">
+                ${f.is_active
+                    ? `<button class="btn sm danger" onclick="deactivateFareConfig(${f.id})">Deactivate</button>`
+                    : `<button class="btn sm ok" onclick="activateFareConfig(${f.id})">Activate</button>`}
+              </td>
+            </tr>`).join('');
+        const pricingActions = active
+            ? `<button class="btn danger sm" onclick="deactivateFareConfig(${active.id})">Deactivate pricing</button>`
+            : (history[0] ? `<button class="btn ok sm" onclick="activateFareConfig(${history[0].id})">Activate latest pricing</button>` : '');
+        view(`
+            <div class="stat-grid">
+              <div class="stat"><div class="k">Pricing status</div><div class="v sm">${active ? 'Active' : 'Inactive'}</div></div>
+              <div class="stat"><div class="k">Charge per KM</div><div class="v sm">${money(active?.per_km)} ${esc(active?.currency || draft.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Base fare</div><div class="v sm">${money(active?.base)} ${esc(active?.currency || draft.currency || 'MAD')}</div></div>
+              <div class="stat"><div class="k">Platform fee</div><div class="v sm">${money(Number(active?.platform_fee_pct || 0) * 100)}%</div></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head"><h2>Suggested rider fare formula</h2><div class="row-actions">${pricingActions}<button class="btn primary sm" onclick="saveFareConfig()">Save & activate new pricing</button></div></div>
+              <div class="pad">
+                <div class="fare-status">
+                  <span class="fare-status-dot ${active ? 'on' : 'off'}"></span>
+                  <b>${active ? 'Fare pricing is active.' : 'Fare pricing is inactive.'}</b>
+                  <span class="muted">${active ? 'Riders will see the suggested price.' : 'Riders will not see auto suggested prices; they can still name their own price.'}</span>
+                </div>
+                <div class="notice info"><b>How it works:</b> the rider sees this as the suggested fare after choosing pickup and drop-off. The rider can still change the offered price, and drivers can still accept that rider price or send a counter offer.</div>
+                <div class="fare-form" id="fareForm">
+                  <div class="field"><label>Currency</label><input id="fareCurrency" type="text" maxlength="3" value="${value('currency','MAD')}"></div>
+                  <div class="field"><label>Base fare</label><input id="fareBase" type="number" min="0" step="0.01" value="${value('base',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Charge per KM</label><input id="farePerKm" type="number" min="0" step="0.01" value="${value('per_km',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Charge per minute</label><input id="farePerMin" type="number" min="0" step="0.01" value="${value('per_min',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Extra passenger charge</label><input id="farePerPax" type="number" min="0" step="0.01" value="${value('per_pax',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Minimum fare floor</label><input id="fareFloor" type="number" min="0" step="0.01" value="${value('floor',0)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Platform fee %</label><input id="farePlatformPct" type="number" min="0" max="100" step="0.01" value="${money(Number(draft.platform_fee_pct || 0) * 100)}"></div>
+                  <div class="field"><label>Sedan multiplier</label><input id="fareSedan" type="number" min="0.1" step="0.01" value="${value('sedan_multiplier',1)}" oninput="updateFarePreview()"></div>
+                  <div class="field"><label>Minivan multiplier</label><input id="fareMinivan" type="number" min="0.1" step="0.01" value="${value('minivan_multiplier',1.25)}"></div>
+                  <div class="field"><label>SUV multiplier</label><input id="fareSuv" type="number" min="0.1" step="0.01" value="${value('suv_multiplier',1.35)}"></div>
+                  <div class="field"><label>Minibus multiplier</label><input id="fareMinibus" type="number" min="0.1" step="0.01" value="${value('minibus_multiplier',1.75)}"></div>
+                  <div class="field"><label>Luxury multiplier</label><input id="fareLuxury" type="number" min="0.1" step="0.01" value="${value('luxury_multiplier',2)}"></div>
+                </div>
+                <div class="fare-preview">
+                  <div class="stat"><div class="k">Example trip</div><div class="v sm">9.4 km · 18 min · 2 pax</div></div>
+                  <div class="stat"><div class="k">Rider suggested fare</div><div class="v sm" id="farePreviewSuggested">—</div></div>
+                  <div class="stat"><div class="k">Driver receives offer</div><div class="v sm">Accept or counter</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel"><div class="panel-head"><h2>Pricing history</h2></div>
+              <div class="table-wrap"><table><thead><tr><th>ID</th><th>Base</th><th>Per KM</th><th>Per min</th><th>Floor</th><th>Fee</th><th>Status</th><th>Active from</th><th>Action</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="9" class="empty">No fare config history.</td></tr>'}</tbody></table></div></div>`);
+        updateFarePreview();
+    };
+    window.fareNum = (id) => Number(document.getElementById(id)?.value || 0);
+    window.updateFarePreview = () => {
+        const subtotal = fareNum('fareBase') + (9.4 * fareNum('farePerKm')) + (18 * fareNum('farePerMin')) + fareNum('farePerPax');
+        const suggested = Math.max(fareNum('fareFloor'), subtotal * (fareNum('fareSedan') || 1));
+        const el = document.getElementById('farePreviewSuggested');
+        if (el) el.textContent = `${money(suggested)} ${document.getElementById('fareCurrency')?.value || 'MAD'}`;
+    };
+    window.saveFareConfig = async () => {
+        const body = {
+            currency: document.getElementById('fareCurrency').value.trim().toUpperCase() || 'MAD',
+            base: fareNum('fareBase'),
+            per_km: fareNum('farePerKm'),
+            per_min: fareNum('farePerMin'),
+            per_pax: fareNum('farePerPax'),
+            floor: fareNum('fareFloor'),
+            platform_fee_pct: fareNum('farePlatformPct') / 100,
+            sedan_multiplier: fareNum('fareSedan') || 1,
+            minivan_multiplier: fareNum('fareMinivan') || 1.25,
+            suv_multiplier: fareNum('fareSuv') || 1.35,
+            minibus_multiplier: fareNum('fareMinibus') || 1.75,
+            luxury_multiplier: fareNum('fareLuxury') || 2,
+        };
+        try { await api('POST', '/api/admin/fare-config', body); toast('Fare pricing saved'); await render.fares(); }
+        catch(e){ toast(e.message,'err'); }
+    };
+    window.activateFareConfig = async (id) => {
+        try { await api('POST', `/api/admin/fare-config/${id}/activate`); toast('Fare pricing activated'); await render.fares(); }
+        catch(e){ toast(e.message,'err'); }
+    };
+    window.deactivateFareConfig = async (id) => {
+        if (!confirm('Deactivate fare pricing? Riders will stop seeing automatic suggested prices.')) return;
+        try { await api('POST', `/api/admin/fare-config/${id}/deactivate`); toast('Fare pricing deactivated'); await render.fares(); }
         catch(e){ toast(e.message,'err'); }
     };
 
@@ -659,21 +886,43 @@
     render.settings = async () => {
         loading();
         const p = await api('GET', '/api/admin/settings');
-        const rows = (p.data||[]).map(s => `
+        const settings = p.data || [];
+        const byKey = Object.fromEntries(settings.map(s => [s.key, s]));
+        const freeOn = byKey['billing.free_launch_enabled']?.value == '1';
+        const freeTitle = byKey['billing.free_launch_title']?.value || 'Free during launch — all features unlocked while we build the network.';
+        const freeBody = byKey['billing.free_launch_body']?.value || 'No payment needed today. These are the plans that will apply when billing starts.';
+        const rows = settings.filter(s => !['billing.free_launch_enabled','billing.free_launch_title','billing.free_launch_body'].includes(s.key)).map(s => `
             <tr><td>${esc(s.group)}</td><td>${esc(s.label||s.key)}<div class="muted" style="font-size:11px">${esc(s.key)}</div></td>
             <td>${ s.type==='boolean'
                 ? `<select data-key="${esc(s.key)}"><option value="1" ${s.value=='1'?'selected':''}>On</option><option value="0" ${s.value!='1'?'selected':''}>Off</option></select>`
                 : `<input type="${s.type==='number'?'number':'text'}" data-key="${esc(s.key)}" value="${esc(s.value)}">` }</td>
             <td class="muted">${esc(s.type)}</td></tr>`).join('');
         view(`
+            <div class="panel">
+              <div class="panel-head"><h2>Launch billing mode</h2><button class="btn primary sm" onclick="saveSettings()">Save changes</button></div>
+              <div class="pad">
+                <div class="notice ${freeOn ? 'ok' : 'info'}">
+                  <b>${freeOn ? 'Billing is OFF — app is free during launch.' : 'Billing is ON — paid system is active.'}</b><br>
+                  ${freeOn ? 'Drivers can complete cash rides without spending points/free rides. Paid billing can be restored anytime.' : 'The normal paid/points/commission system is active.'}
+                </div>
+                <div class="payment-grid">
+                  <div class="field"><label>Free launch mode</label><select data-key="billing.free_launch_enabled">
+                    <option value="1" ${freeOn ? 'selected' : ''}>On — billing off / free app</option>
+                    <option value="0" ${!freeOn ? 'selected' : ''}>Off — paid system active</option>
+                  </select><small>Turn this on while launching the network. Turn it off to return to the current paid system.</small></div>
+                  <div class="field wide"><label>Mobile banner title</label><input data-key="billing.free_launch_title" type="text" value="${esc(freeTitle)}"></div>
+                  <div class="field wide"><label>Mobile banner body</label><input data-key="billing.free_launch_body" type="text" value="${esc(freeBody)}"></div>
+                </div>
+              </div>
+            </div>
             <div class="panel"><div class="panel-head"><h2>Platform settings</h2><button class="btn primary sm" onclick="saveSettings()">Save changes</button></div>
               <div class="table-wrap"><table><thead><tr><th>Group</th><th>Setting</th><th>Value</th><th>Type</th></tr></thead>
               <tbody id="settingsRows">${rows || '<tr><td colspan="4" class="empty">No settings.</td></tr>'}</tbody></table></div></div>`);
     };
     window.saveSettings = async () => {
         const settings = {};
-        document.querySelectorAll('#settingsRows [data-key]').forEach(el => settings[el.dataset.key] = el.value);
-        try { await api('POST', '/api/admin/settings', { settings }); toast('Settings saved'); }
+        document.querySelectorAll('[data-key]').forEach(el => settings[el.dataset.key] = el.value);
+        try { await api('POST', '/api/admin/settings', { settings }); toast('Settings saved'); await render.settings(); }
         catch(e){ toast(e.message,'err'); }
     };
 

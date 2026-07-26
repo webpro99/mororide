@@ -13,7 +13,8 @@ class DriverVerificationService
 {
     public function __construct(
         private AuditLogService $auditLogService,
-        private NotificationService $notificationService
+        private NotificationService $notificationService,
+        private WalletService $walletService
     ) {}
 
     /**
@@ -66,6 +67,7 @@ class DriverVerificationService
                 ]);
 
             $this->auditLogService->record($admin, 'driver_approved', $driver, ['approval_state' => $old], ['approval_state' => 'approved']);
+            $this->walletService->grantApprovalFreeRides($driver);
             $this->notificationService->push($driver, 'driver_approved', 'Driver profile approved', 'Your documents are approved. You can now go online and receive ride requests.', ['screen' => 'driver']);
 
             return $driver->fresh('driverProfile');
@@ -122,6 +124,27 @@ class DriverVerificationService
         ]);
 
         $this->auditLogService->record($admin, 'driver_document_reviewed', $document, [], ['type' => $document->type, 'status' => $status]);
+
+        $label = str_replace('_', ' ', $document->type);
+        if ($status === DriverDocument::STATUS_APPROVED) {
+            $this->notificationService->push(
+                $document->user,
+                'driver_document_approved',
+                'Document approved',
+                "Your {$label} document has been approved.",
+                ['screen' => 'verification', 'type' => $document->type, 'severity' => 'success']
+            );
+        }
+
+        if ($status === DriverDocument::STATUS_REJECTED) {
+            $this->notificationService->push(
+                $document->user,
+                'driver_document_rejected',
+                'Document rejected',
+                "Your {$label} document was rejected.".($note ? " Admin note: {$note}" : ''),
+                ['screen' => 'verification', 'type' => $document->type, 'severity' => 'warning']
+            );
+        }
 
         return $document->fresh();
     }

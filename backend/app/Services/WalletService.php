@@ -62,6 +62,23 @@ class WalletService
         return $this->writeLedgerEntry($wallet, $order, $transaction, 'credit', 'card_net_earning', $net, 0, 'Card ride net earning credited to driver wallet.');
     }
 
+    public function waiveCashCommission(User $driver, Order $order, Transaction $transaction, string $reason): WalletLedgerEntry
+    {
+        $wallet = $this->createWalletForUser($driver);
+
+        return $this->writeLedgerEntry(
+            $wallet,
+            $order,
+            $transaction,
+            'debit',
+            'cash_commission_waived',
+            0,
+            0,
+            $reason,
+            ['billing_off' => true]
+        );
+    }
+
     public function topUpPoints(User $driver, float $amount, ?PaymentIntent $paymentIntent = null): WalletLedgerEntry
     {
         $wallet = $this->createWalletForUser($driver);
@@ -80,6 +97,36 @@ class WalletService
             $paymentIntent ? ['provider' => $paymentIntent->provider] : [],
             $paymentIntent
         );
+    }
+
+    public function grantApprovalFreeRides(User $driver, int $rides = 2): Wallet
+    {
+        $wallet = $this->createWalletForUser($driver);
+
+        $alreadyGranted = WalletLedgerEntry::where('user_id', $driver->id)
+            ->where('entry_type', 'driver_approval_free_rides')
+            ->exists();
+
+        if ($alreadyGranted) {
+            return $wallet;
+        }
+
+        $wallet->free_rides_remaining += $rides;
+        $wallet->save();
+
+        $this->writeLedgerEntry(
+            $wallet,
+            null,
+            null,
+            'credit',
+            'driver_approval_free_rides',
+            0,
+            0,
+            'Two free rides granted after driver approval.',
+            ['free_rides_delta' => $rides, 'free_rides_after' => $wallet->free_rides_remaining]
+        );
+
+        return $wallet;
     }
 
     /**

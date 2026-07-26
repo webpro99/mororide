@@ -8,7 +8,6 @@ import {
   Image,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,21 +16,25 @@ import {
   ViewStyle,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   cancelRiderOrder,
   chooseRiderOffer,
   createRidePaymentIntent,
   createRiderOrder,
+  estimateFare,
   getApiBaseUrl,
   setApiBaseUrl,
   getAccessToken,
   getCatalog,
   getNotifications,
   getOrderMessages,
+  getPlatformMode,
   getRiderOffers,
   getRiderOrder,
   getRiderHistory,
   getRiderConversations,
+  getRiderOrders,
   loginUser,
   logout,
   markNotificationRead,
@@ -40,16 +43,18 @@ import {
   restoreSession,
   sendOrderMessage,
 } from './src/api';
-import { registerForPush, unregisterPush } from './src/push';
+import { IncomingCallNotice, registerForPush, subscribeToIncomingCalls, unregisterPush } from './src/push';
 import { payWithCardSheet } from './src/stripeCard';
 import ConciergeApp from './src/ConciergeApp';
 import DriverApp from './src/DriverApp';
 import { NativeGoogleRouteMap } from './src/NativeGoogleRouteMap';
 import { LocationPicker, PickedLocation } from './src/LocationPicker';
+import { VoiceCallScreen } from './src/VoiceCallScreen';
+import { IncomingCallPrompt } from './src/IncomingCallPrompt';
 import { createRealtimeClient } from './src/realtime';
-import { AppNotification, Catalog, CatalogCity, CatalogDriver, CatalogVehicle, ChatMessage, DriverLocationEvent, Order, OrderOffer, RideConversation } from './src/types';
+import { AppNotification, Catalog, CatalogCity, CatalogDriver, CatalogVehicle, ChatMessage, DriverLocationEvent, FareEstimate, Order, OrderOffer, PlatformMode, RideConversation } from './src/types';
 
-type Screen = 'booking' | 'offers' | 'profile' | 'tracking' | 'chat' | 'completed' | 'history' | 'messages';
+type Screen = 'booking' | 'offers' | 'profile' | 'tracking' | 'chat' | 'call' | 'completed' | 'history' | 'messages';
 type DemoCoord = { lat: number; lng: number };
 
 const moroLogoMark = require('./assets/moro_logo_mark_transparent.png');
@@ -77,6 +82,7 @@ function driverFromOffer(offer: OrderOffer): CatalogDriver {
     vehicle_name: offer.driver.vehicle?.name,
     vehicle_plate: offer.driver.vehicle?.plate,
     vehicle_type: offer.driver.vehicle?.type,
+    vehicle_photos: offer.driver.vehicle_photos ?? [],
     approval_state: 'approved',
     online_status: true,
   };
@@ -87,10 +93,20 @@ const APP_MODE_KEY = 'mororide.mobile.appmode';
 type AppMode = 'rider' | 'driver' | 'concierge';
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const [mode, setMode] = useState<AppMode | null | undefined>(undefined);
   const [authenticated, setAuthenticated] = useState(false);
   const [signUp, setSignUp] = useState(false);
   const [signUpRole, setSignUpRole] = useState<AppMode>('rider');
+  const [platformMode, setPlatformMode] = useState<PlatformMode | null>(null);
+  const [freeBannerHidden, setFreeBannerHidden] = useState(false);
 
   useEffect(() => {
     Promise.all([AsyncStorage.getItem(APP_MODE_KEY), restoreSession().catch(() => null)]).then(([stored, session]) => {
@@ -98,6 +114,25 @@ export default function App() {
       setAuthenticated(Boolean(storedMode && session?.user.role === storedMode));
       setMode(storedMode);
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      getPlatformMode()
+        .then((nextMode) => {
+          if (!active) return;
+          setPlatformMode(nextMode);
+          if (nextMode.free_launch_enabled) setFreeBannerHidden(false);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
   async function pick(next: AppMode) {
@@ -147,9 +182,45 @@ export default function App() {
       onBack={async () => { await AsyncStorage.removeItem(APP_MODE_KEY); setMode(null); }}
     />;
   }
-  if (mode === 'driver') return <DriverApp onSwitchRole={switchRole} />;
-  if (mode === 'concierge') return <ConciergeApp onSwitchRole={switchRole} />;
-  return <RiderApp onSwitchRole={switchRole} />;
+  const freeLaunch = Boolean(platformMode?.free_launch_enabled);
+  const roleApp = mode === 'driver'
+    ? <DriverApp onSwitchRole={switchRole} freeLaunch={freeLaunch} />
+    : mode === 'concierge'
+      ? <ConciergeApp onSwitchRole={switchRole} freeLaunch={freeLaunch} />
+      : <RiderApp onSwitchRole={switchRole} freeLaunch={freeLaunch} />;
+
+  return (
+    <View style={styles.appShell}>
+      {roleApp}
+      {platformMode?.free_launch_enabled && !freeBannerHidden ? (
+        <FreeLaunchBanner mode={platformMode} onClose={() => setFreeBannerHidden(true)} />
+      ) : null}
+    </View>
+  );
+}
+
+function FreeLaunchBanner({ mode, onClose }: { mode: PlatformMode; onClose: () => void }) {
+  return (
+    <View pointerEvents="box-none" style={styles.freeLaunchWrap}>
+      <View style={styles.freeLaunchCard}>
+        <View style={styles.freeLaunchStar}>
+          <Ionicons name="sparkles" size={22} color={colors.navy} />
+        </View>
+        <View style={styles.freeLaunchCopy}>
+          <View style={styles.freeLaunchTitleRow}>
+            <Text style={styles.freeLaunchTitle}>{mode.title}</Text>
+            <View style={styles.billingOffPill}>
+              <Text style={styles.billingOffText}>Billing off</Text>
+            </View>
+          </View>
+          <Text style={styles.freeLaunchBody}>{mode.body}</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss free launch banner" onPress={onClose} style={styles.freeLaunchClose}>
+          <Ionicons name="close" size={18} color={colors.white} />
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 function RoleGate({ onPick, onSignUp }: { onPick: (mode: AppMode) => void; onSignUp: () => void }) {
@@ -157,51 +228,58 @@ function RoleGate({ onPick, onSignUp }: { onPick: (mode: AppMode) => void; onSig
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.cream} />
       {serverOpen ? <ServerSettings onClose={() => setServerOpen(false)} /> : null}
-      <View style={[styles.phone, styles.gate]}>
-        <Image source={moroLogoMark} style={styles.gateLogo} resizeMode="contain" />
-        <Text style={styles.gateBrand}>MoroRide</Text>
-        <Text style={styles.gateSub}>Choose how you want to use the app</Text>
-
-        <Pressable style={styles.gateCard} onPress={() => onPick('rider')}>
-          <Ionicons name="person-outline" size={26} color={colors.navy} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.gateCardTitle}>I'm a Rider</Text>
-            <Text style={styles.gateCardText}>Book a ride, choose a driver, track & pay</Text>
+      <View style={styles.phone}>
+        <ScrollView contentContainerStyle={styles.gate} showsVerticalScrollIndicator={false}>
+          <View style={styles.gateHero}>
+            <View style={styles.gateLogoShell}>
+              <Image source={moroLogoMark} style={styles.gateLogo} resizeMode="contain" />
+            </View>
+            <Text style={styles.gateEyebrow}>WELCOME TO MORORIDE</Text>
+            <Text style={styles.gateBrand}>How are you travelling?</Text>
+            <Text style={styles.gateSub}>Choose your space. You can switch roles at any time.</Text>
           </View>
-          <Ionicons name="chevron-forward" size={22} color={colors.muted} />
-        </Pressable>
 
-        <Pressable style={styles.gateCard} onPress={() => onPick('driver')}>
-          <Ionicons name="car-sport-outline" size={26} color={colors.navy} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.gateCardTitle}>I'm a Driver</Text>
-            <Text style={styles.gateCardText}>Go online, accept rides, get paid</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={22} color={colors.muted} />
-        </Pressable>
+          <Pressable style={styles.gateCard} onPress={() => onPick('rider')}>
+            <Ionicons name="person-outline" size={26} color={colors.navy} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.gateCardTitle}>I'm a Rider</Text>
+              <Text style={styles.gateCardText}>Book a ride, choose a driver, track & pay</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.muted} />
+          </Pressable>
 
-        <Pressable style={styles.gateCard} onPress={() => onPick('concierge')}>
-          <MaterialCommunityIcons name="bell-outline" size={26} color={colors.navy} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.gateCardTitle}>I'm a Concierge</Text>
-            <Text style={styles.gateCardText}>Dispatch rides for hotel & riad guests</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={22} color={colors.muted} />
-        </Pressable>
+          <Pressable style={styles.gateCard} onPress={() => onPick('driver')}>
+            <Ionicons name="car-sport-outline" size={26} color={colors.navy} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.gateCardTitle}>I'm a Driver</Text>
+              <Text style={styles.gateCardText}>Go online, accept rides, get paid</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.muted} />
+          </Pressable>
 
-        <Pressable style={styles.gateSignUp} onPress={onSignUp}>
-          <Ionicons name="person-add-outline" size={20} color={colors.rust} />
-          <Text style={styles.gateSignUpText}>Create a new account</Text>
-        </Pressable>
+          <Pressable style={styles.gateCard} onPress={() => onPick('concierge')}>
+            <MaterialCommunityIcons name="bell-outline" size={26} color={colors.navy} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.gateCardTitle}>I'm a Concierge</Text>
+              <Text style={styles.gateCardText}>Dispatch rides for hotel & riad guests</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.muted} />
+          </Pressable>
 
-        <Pressable style={styles.gateServer} onPress={() => setServerOpen(true)}>
-          <Ionicons name="server-outline" size={16} color={colors.muted} />
-          <Text style={styles.gateServerText}>Server settings</Text>
-        </Pressable>
+          <Pressable style={styles.gateSignUp} onPress={onSignUp}>
+            <Ionicons name="person-add-outline" size={20} color={colors.rust} />
+            <Text style={styles.gateSignUpText}>Create a new account</Text>
+          </Pressable>
 
-        <Text style={styles.gateHint}>Pick a role to use a demo account, or create your own.</Text>
+          <Pressable style={styles.gateServer} onPress={() => setServerOpen(true)}>
+            <Ionicons name="server-outline" size={16} color={colors.muted} />
+            <Text style={styles.gateServerText}>Server settings</Text>
+          </Pressable>
+
+          <Text style={styles.gateHint}>Secure rides · Verified drivers · Local support</Text>
+        </ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -240,8 +318,9 @@ function RoleAuthScreen({ role, onAuthenticated, onSignUp, onBack }: {
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar style="light" />
-      <View style={[styles.phone, styles.authPage]}>
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.cream} />
+      <View style={[styles.phone, styles.authShell]}>
+      <ScrollView contentContainerStyle={styles.authPage} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.authBack}>
           <Ionicons name="arrow-back" size={22} color={colors.white} />
         </Pressable>
@@ -263,6 +342,7 @@ function RoleAuthScreen({ role, onAuthenticated, onSignUp, onBack }: {
             <Text style={styles.authCreateText}>Create a {role} account</Text>
           </Pressable>
         </View>
+      </ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -342,11 +422,29 @@ function SignUpScreen({ initialRole = 'rider', onDone, onCancel }: { initialRole
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar style="light" />
-      <ScrollView contentContainerStyle={[styles.phone, styles.gate]} showsVerticalScrollIndicator={false}>
-        <Image source={moroLogoMark} style={styles.gateLogo} resizeMode="contain" />
-        <Text style={styles.gateBrand}>Create your account</Text>
-        <Text style={styles.gateSub}>Join MoroRide as a rider, driver, or concierge</Text>
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.cream} />
+      <View style={styles.phone}>
+      <ScrollView
+        contentContainerStyle={styles.signupPage}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.signupTopbar}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onCancel} style={styles.signupBack}>
+            <Ionicons name="arrow-back" size={22} color={colors.navy} />
+          </Pressable>
+          <View style={styles.signupBrand}>
+            <Image source={moroLogoMark} style={styles.signupLogo} resizeMode="contain" />
+            <Text style={styles.signupBrandText}>MoroRide</Text>
+          </View>
+          <View style={styles.signupTopbarSpacer} />
+        </View>
+
+        <View style={styles.signupHero}>
+          <Text style={styles.signupEyebrow}>LET'S GET STARTED</Text>
+          <Text style={styles.signupTitle}>Create your account</Text>
+          <Text style={styles.signupSubtitle}>One account, built around the way you travel.</Text>
+        </View>
 
         <View style={styles.signupRoles}>
           {(['rider', 'driver', 'concierge'] as AppMode[]).map((option) => (
@@ -356,10 +454,12 @@ function SignUpScreen({ initialRole = 'rider', onDone, onCancel }: { initialRole
           ))}
         </View>
 
-        <SignUpField label="Full name" value={name} onChange={setName} placeholder="e.g. Amine B." />
-        <SignUpField label="Email" value={email} onChange={setEmail} placeholder="you@example.com" keyboardType="email-address" />
-        <SignUpField label="Phone (optional)" value={phone} onChange={setPhone} placeholder="+2126..." keyboardType="phone-pad" />
-        <SignUpField label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" secure />
+        <View style={styles.signupForm}>
+          <SignUpField label="Full name" value={name} onChange={setName} placeholder="e.g. Amine B." />
+          <SignUpField label="Email address" value={email} onChange={setEmail} placeholder="you@example.com" keyboardType="email-address" />
+          <SignUpField label="Phone number (optional)" value={phone} onChange={setPhone} placeholder="+212 6..." keyboardType="phone-pad" />
+          <SignUpField label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" secure />
+        </View>
 
         {role === 'driver' ? (
           <Text style={styles.signupNote}>Drivers upload their 7 verification documents in the app after signing up. You can go online once an admin approves them.</Text>
@@ -369,10 +469,9 @@ function SignUpScreen({ initialRole = 'rider', onDone, onCancel }: { initialRole
         <Pressable onPress={submit} disabled={loading} style={[styles.signupSubmit, loading && { opacity: 0.6 }]}>
           {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.signupSubmitText}>Create account</Text>}
         </Pressable>
-        <Pressable onPress={onCancel} style={styles.signupCancel}>
-          <Text style={styles.signupCancelText}>Back to role selection</Text>
-        </Pressable>
+        <Text style={styles.signupTerms}>By continuing, you agree to MoroRide's terms and privacy policy.</Text>
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -402,12 +501,14 @@ function SignUpField({ label, value, onChange, placeholder, secure, keyboardType
   );
 }
 
-function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
+function RiderApp({ onSwitchRole, freeLaunch = false }: { onSwitchRole: () => void; freeLaunch?: boolean }) {
   const [screen, setScreen] = useState<Screen>('booking');
+  const [callShouldNotify, setCallShouldNotify] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<(IncomingCallNotice & { notificationId?: number }) | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedCityId, setSelectedCityId] = useState<number | null>(null);
@@ -416,6 +517,8 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
   const [luggage, setLuggage] = useState(2);
   const [payment, setPayment] = useState<'cash' | 'card'>('cash');
   const [price, setPrice] = useState('120');
+  const [suggestedFare, setSuggestedFare] = useState<FareEstimate | null>(null);
+  const [priceEdited, setPriceEdited] = useState(false);
   const [pickup, setPickup] = useState<PickedLocation | null>(null);
   const [dropoff, setDropoff] = useState<PickedLocation | null>(null);
   const [locationPicker, setLocationPicker] = useState<'pickup' | 'dropoff' | null>(null);
@@ -437,6 +540,15 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
   const [chatBackScreen, setChatBackScreen] = useState<Screen>('tracking');
   const announcedAssignmentRef = useRef<number | null>(null);
   const lastNotificationIdRef = useRef<number | null>(null);
+
+  function shouldShowIncomingCall(orderId: number) {
+    return screen !== 'call' && (!currentOrder?.id || currentOrder.id === orderId);
+  }
+
+  function queueIncomingCall(call: IncomingCallNotice & { notificationId?: number }) {
+    if (!shouldShowIncomingCall(call.orderId)) return;
+    setIncomingCall((current) => current?.orderId === call.orderId && current.notificationId === call.notificationId ? current : call);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -461,6 +573,71 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (freeLaunch && payment === 'card') setPayment('cash');
+  }, [freeLaunch, payment]);
+
+  useEffect(() => {
+    return subscribeToIncomingCalls(queueIncomingCall);
+  }, [screen, currentOrder?.id]);
+
+  // Restore an open request after an app reload or a temporary transport
+  // failure. The backend may have committed the order even if realtime failed
+  // while the HTTP response was being completed.
+  useEffect(() => {
+    let active = true;
+    getRiderOrders().then(async (orders) => {
+      const open = orders.find((item) => ['searching', 'offered', 'assigned', 'arrived', 'in_progress'].includes(item.status));
+      if (!active || !open) return;
+      setCurrentOrder(open);
+      const nextOffers = await getRiderOffers(open.id).catch(() => []);
+      if (!active) return;
+      setOffers(nextOffers);
+      setScreen(open.assigned_driver_id ? 'tracking' : 'offers');
+      if (open.assigned_driver_id) {
+        const accepted = nextOffers.find((item) => item.driver.id === open.assigned_driver_id);
+        if (accepted) {
+          setSelectedOffer(accepted);
+          setSelectedDriver(driverFromOffer(accepted));
+        }
+      }
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!pickup || !dropoff) {
+      setSuggestedFare(null);
+      return undefined;
+    }
+
+    const tripDistance = Math.round(haversineKm(pickup, dropoff) * 10) / 10;
+    if (tripDistance < 0.1) {
+      setSuggestedFare(null);
+      return undefined;
+    }
+
+    let active = true;
+    const etaMin = Math.max(1, Math.round((tripDistance / 45) * 60));
+
+    estimateFare({
+      distance_km: tripDistance,
+      eta_min: etaMin,
+      pax: passengers,
+      vehicle_type: selectedVehicleKey,
+    })
+      .then((fare) => {
+        if (!active) return;
+        setSuggestedFare(fare);
+        if (!priceEdited) setPrice(String(Math.round(fare.suggested_fare)));
+      })
+      .catch(() => {
+        if (active) setSuggestedFare(null);
+      });
+
+    return () => { active = false; };
+  }, [pickup, dropoff, passengers, selectedVehicleKey, priceEdited]);
 
   useEffect(() => {
     if (!currentOrder) return undefined;
@@ -570,6 +747,19 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         const all = await getNotifications();
         if (!active) return;
         setNotifications(all);
+        const incoming = all.find((item) => {
+          const orderId = Number(item.data?.order_id);
+          return item.type === 'incoming_voice_call' && !item.read_at && Number.isFinite(orderId) && shouldShowIncomingCall(orderId);
+        });
+        if (incoming) {
+          queueIncomingCall({
+            orderId: Number(incoming.data?.order_id),
+            title: incoming.title,
+            body: incoming.body,
+            callerId: Number(incoming.data?.caller_id) || null,
+            notificationId: incoming.id,
+          });
+        }
         const unread = all.filter((item) => item.type === 'chat_message' && !item.read_at);
         const latest = all.find((item) => item.type === 'chat_message');
         if (latest && lastNotificationIdRef.current !== null && latest.id > lastNotificationIdRef.current) {
@@ -632,6 +822,10 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       setNotice('Pickup and drop-off must be different locations.');
       return;
     }
+    if (!Number(price)) {
+      setNotice('Enter your offered price or ask admin to activate fare pricing.');
+      return;
+    }
 
     setLoading(true);
 
@@ -660,8 +854,22 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       await refreshOffers(order.id);
       setScreen('offers');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not create ride request');
-      setScreen('offers');
+      // Recover a request that was committed server-side before a transient
+      // realtime/HTTP failure interrupted the response.
+      const recovered = await getRiderOrders()
+        .then((orders) => orders.find((item) =>
+          ['searching', 'offered'].includes(item.status)
+          && item.pickup_address === pickup.address
+          && item.dropoff_address === dropoff.address))
+        .catch(() => undefined);
+      if (recovered) {
+        setCurrentOrder(recovered);
+        setOffers(await getRiderOffers(recovered.id).catch(() => []));
+        setNotice(null);
+        setScreen('offers');
+      } else {
+        setNotice(error instanceof Error ? error.message : 'Could not create ride request');
+      }
     } finally {
       setLoading(false);
     }
@@ -713,10 +921,25 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
     setNotice(null);
     try {
       await cancelRiderOrder(currentOrder.id);
+      // A cancelled request starts a completely fresh booking. Do not leave
+      // stale pins, fare, offers, chat, or passenger choices on the form.
+      setPickup(null);
+      setDropoff(null);
+      setLocationPicker(null);
       setCurrentOrder(null);
       setOffers([]);
       setSelectedOffer(null);
       setSelectedDriver(null);
+      setDriverCoord(null);
+      setMessages([]);
+      setPassengers(1);
+      setLuggage(0);
+      setPrice('');
+      setSuggestedFare(null);
+      setPriceEdited(false);
+      setPayment('cash');
+      setRating(0);
+      announcedAssignmentRef.current = null;
       setScreen('booking');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not cancel this request');
@@ -850,6 +1073,30 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
     }
   }
 
+  async function answerIncomingCall() {
+    if (!incomingCall) return;
+    const orderId = incomingCall.orderId;
+    const notificationId = incomingCall.notificationId;
+    setIncomingCall(null);
+    if (notificationId) {
+      markNotificationRead(notificationId).catch(() => null);
+    }
+    if (currentOrder?.id !== orderId) {
+      const order = await getRiderOrder(orderId).catch(() => null);
+      if (order) setCurrentOrder(order);
+    }
+    setCallShouldNotify(false);
+    setScreen('call');
+  }
+
+  function declineIncomingCall() {
+    if (incomingCall?.notificationId) {
+      markNotificationRead(incomingCall.notificationId).catch(() => null);
+      setNotifications((current) => current.map((item) => item.id === incomingCall.notificationId ? { ...item, read_at: item.read_at ?? new Date().toISOString() } : item));
+    }
+    setIncomingCall(null);
+  }
+
   const content = useMemo(() => {
     if (screen === 'offers') return <OffersScreen offers={offers} order={currentOrder} loading={offersLoading || loading} onBack={() => setScreen('booking')} onProfile={(offer) => {
       setSelectedOffer(offer);
@@ -857,8 +1104,9 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
       setScreen('profile');
     }} onChoose={chooseOffer} onRefresh={() => refreshOffers()} onCancel={cancelCurrentOrder} notice={notice} />;
     if (screen === 'profile') return <ProfileScreen driver={selectedDriver} onBack={() => setScreen('offers')} onChoose={() => selectedOffer && chooseOffer(selectedOffer)} />;
-    if (screen === 'tracking') return <TrackingScreen order={currentOrder} driver={selectedDriver} driverCoord={driverCoord} notice={notice} onBack={() => setScreen('offers')} onChat={openChat} onPay={payWithCard} onComplete={() => setScreen('completed')} />;
+    if (screen === 'tracking') return <TrackingScreen order={currentOrder} driver={selectedDriver} driverCoord={driverCoord} notice={notice} onBack={() => setScreen('offers')} onChat={openChat} onCall={() => { setCallShouldNotify(true); setScreen('call'); }} onPay={payWithCard} onComplete={() => setScreen('completed')} />;
     if (screen === 'chat') return <ChatScreen messages={messages} loading={chatLoading} notice={notice} onBack={() => setScreen(chatBackScreen)} onSend={sendChatMessage} />;
+    if (screen === 'call' && currentOrder) return <VoiceCallScreen orderId={currentOrder.id} peerLabel={selectedDriver?.name ?? currentOrder.driver?.name ?? 'Your driver'} notify={callShouldNotify} onEnd={() => setScreen('tracking')} />;
     if (screen === 'completed') return <CompletedScreen order={currentOrder} driver={selectedDriver} rating={rating} setRating={setRating} loading={loading} notice={notice} onDone={submitRating} />;
     if (screen === 'history') return <RiderHistoryScreen orders={rideHistory} loading={archiveLoading} notice={notice} onBack={() => setScreen('booking')} onOpenChat={(order) => openArchivedChat(order, 'history')} />;
     if (screen === 'messages') return <RiderMessagesScreen conversations={conversations} loading={archiveLoading} notice={notice} onBack={() => setScreen('booking')} onOpenChat={(order) => openArchivedChat(order, 'messages')} />;
@@ -877,8 +1125,18 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         setLuggage={setLuggage}
         payment={payment}
         setPayment={setPayment}
+        freeLaunch={freeLaunch}
         price={price}
-        setPrice={setPrice}
+        setPrice={(value) => {
+          setPriceEdited(true);
+          setPrice(value);
+        }}
+        suggestedFare={suggestedFare}
+        onUseSuggestedFare={() => {
+          if (!suggestedFare) return;
+          setPrice(String(Math.round(suggestedFare.suggested_fare)));
+          setPriceEdited(false);
+        }}
         pickupCoord={pickup}
         dropoffCoord={dropoff}
         onPickPickup={() => setLocationPicker('pickup')}
@@ -891,7 +1149,7 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
         onFindDriver={findDriver}
       />
     );
-  }, [screen, catalog, currentOrder, selectedDriver, selectedOffer, offers, offersLoading, driverCoord, messages, chatLoading, selectedCityId, selectedVehicleKey, passengers, luggage, payment, price, pickup, dropoff, loading, catalogLoading, notice, rating, rideHistory, conversations, archiveLoading, chatBackScreen]);
+  }, [screen, catalog, currentOrder, selectedDriver, selectedOffer, offers, offersLoading, driverCoord, messages, chatLoading, selectedCityId, selectedVehicleKey, passengers, luggage, payment, freeLaunch, price, suggestedFare, pickup, dropoff, loading, catalogLoading, notice, rating, rideHistory, conversations, archiveLoading, chatBackScreen]);
 
   function navigate(screenName: Screen) {
     setScreen(screenName);
@@ -900,7 +1158,7 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar style={screen === 'tracking' || screen === 'completed' ? 'dark' : 'light'} />
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.cream} />
       <View style={styles.phone}>
         {content}
         {menuOpen ? (
@@ -921,6 +1179,21 @@ function RiderApp({ onSwitchRole }: { onSwitchRole: () => void }) {
             notifications={notifications}
             loading={notificationsLoading}
             onClose={() => setNotificationsOpen(false)}
+            onOpenCall={(orderId) => {
+              if (currentOrder?.id !== orderId) return;
+              setNotificationsOpen(false);
+              setCallShouldNotify(false);
+              setScreen('call');
+            }}
+          />
+        ) : null}
+        {incomingCall ? (
+          <IncomingCallPrompt
+            title={incomingCall.title}
+            body={incomingCall.body}
+            peerLabel={selectedDriver?.name ?? currentOrder?.driver?.name ?? 'Your driver'}
+            onAnswer={answerIncomingCall}
+            onDecline={declineIncomingCall}
           />
         ) : null}
         <LocationPicker
@@ -954,10 +1227,13 @@ function BookingScreen(props: {
   setLuggage: (value: number) => void;
   payment: 'cash' | 'card';
   setPayment: (value: 'cash' | 'card') => void;
+  freeLaunch: boolean;
   price: string;
   setPrice: (value: string) => void;
-  pickupCoord: DemoCoord | null;
-  dropoffCoord: DemoCoord | null;
+  suggestedFare: FareEstimate | null;
+  onUseSuggestedFare: () => void;
+  pickupCoord: PickedLocation | null;
+  dropoffCoord: PickedLocation | null;
   onPickPickup: () => void;
   onPickDropoff: () => void;
   loading: boolean;
@@ -967,6 +1243,15 @@ function BookingScreen(props: {
   onOpenNotifications: () => void;
   onFindDriver: () => void;
 }) {
+  const routeDistanceKm = props.pickupCoord && props.dropoffCoord
+    ? Math.round(haversineKm(props.pickupCoord, props.dropoffCoord) * 10) / 10
+    : null;
+  const routeEtaMin = routeDistanceKm ? Math.max(1, Math.round((routeDistanceKm / 45) * 60)) : null;
+  const displayedFare = props.suggestedFare ? Math.round(props.suggestedFare.suggested_fare) : Number(props.price || 0);
+  const fareMeta = props.suggestedFare
+    ? `Admin rate · ${props.suggestedFare.distance_km} km · ${props.suggestedFare.eta_min} min · ${props.suggestedFare.vehicle_type}`
+    : (routeDistanceKm ? `${routeDistanceKm} km route · ${routeEtaMin} min estimated` : 'Choose pickup and drop-off to calculate');
+
   return (
     <View style={styles.screen}>
       <DarkHeader
@@ -995,6 +1280,30 @@ function BookingScreen(props: {
           onPickPickup={props.onPickPickup}
           onPickDropoff={props.onPickDropoff}
         />
+
+        {routeDistanceKm ? (
+          <Card style={styles.tripMetricsCard}>
+            <View style={styles.tripMetric}>
+              <View style={styles.tripMetricIcon}>
+                <Ionicons name="navigate-outline" size={21} color={colors.navy} />
+              </View>
+              <View>
+                <Text style={styles.tripMetricLabel}>Trip distance</Text>
+                <Text style={styles.tripMetricValue}>{routeDistanceKm} km</Text>
+              </View>
+            </View>
+            <View style={styles.tripMetricDivider} />
+            <View style={styles.tripMetric}>
+              <View style={styles.tripMetricIcon}>
+                <Ionicons name="time-outline" size={21} color={colors.navy} />
+              </View>
+              <View>
+                <Text style={styles.tripMetricLabel}>Estimated time</Text>
+                <Text style={styles.tripMetricValue}>{routeEtaMin} min</Text>
+              </View>
+            </View>
+          </Card>
+        ) : null}
 
         <View style={styles.twoCols}>
           <Stepper label="Passengers" value={props.passengers} icon="person-outline" onMinus={() => props.setPassengers(Math.max(1, props.passengers - 1))} onPlus={() => props.setPassengers(props.passengers + 1)} />
@@ -1025,10 +1334,10 @@ function BookingScreen(props: {
             <View>
               <Text style={styles.fareEyebrow}>Suggested fare</Text>
               <View style={styles.fareLine}>
-                <Text style={styles.fareNumber}>{props.price || '-'}</Text>
+                <Text style={styles.fareNumber}>{displayedFare || '-'}</Text>
                 <Text style={styles.currency}>MAD</Text>
               </View>
-              <Text style={styles.fareMeta}>about EUR 11.20 - 18 min - 9.4 km</Text>
+              <Text style={styles.fareMeta}>{fareMeta}</Text>
             </View>
             <View style={styles.fareShield}>
               <MaterialCommunityIcons name="shield-check-outline" size={34} color={colors.rust} />
@@ -1044,6 +1353,12 @@ function BookingScreen(props: {
               </View>
             ))}
           </View>
+          {props.suggestedFare ? (
+            <Pressable style={styles.useSuggestedButton} onPress={props.onUseSuggestedFare}>
+              <Ionicons name="sparkles-outline" size={17} color={colors.navy} />
+              <Text style={styles.useSuggestedText}>Use admin suggested price</Text>
+            </Pressable>
+          ) : null}
         </Card>
 
         <Card style={styles.priceInputCard}>
@@ -1071,9 +1386,12 @@ function BookingScreen(props: {
 
         <Text style={styles.fieldTitle}>Payment method</Text>
         <View style={styles.paymentBox}>
-          <PaymentChoice active={props.payment === 'cash'} title="Cash" subtitle="Pay the driver" icon="cash" onPress={() => props.setPayment('cash')} />
-          <PaymentChoice active={props.payment === 'card'} title="Card" subtitle="Pay securely" icon="card-outline" onPress={() => props.setPayment('card')} />
+          <PaymentChoice active={props.payment === 'cash'} title="Cash" subtitle={props.freeLaunch ? 'Card disabled during free launch' : 'Pay the driver'} icon="cash" onPress={() => props.setPayment('cash')} />
+          {!props.freeLaunch ? (
+            <PaymentChoice active={props.payment === 'card'} title="Card" subtitle="Pay securely" icon="card-outline" onPress={() => props.setPayment('card')} />
+          ) : null}
         </View>
+        {props.freeLaunch ? <Text style={styles.freeModeHint}>Billing off: card payments are disabled during the free launch period.</Text> : null}
 
         <PrimaryButton label="Find Driver" loading={props.loading} onPress={props.onFindDriver} />
         <SafetyText text="Your safety is our priority" />
@@ -1129,16 +1447,20 @@ function OffersScreen({
         <Card style={styles.broadcastCard}>
           <MaterialCommunityIcons name="broadcast" size={38} color={colors.rust} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.broadcastTitle}>Great! Drivers are sending you their offers.</Text>
-            <Text style={styles.subtle}>This usually takes less than 30 seconds.</Text>
+            <Text style={styles.broadcastTitle}>
+              {offers.length > 0 ? `${offers.length} driver offer${offers.length === 1 ? '' : 's'} ready` : 'Finding nearby drivers'}
+            </Text>
+            <Text style={styles.subtle}>{offers.length > 0 ? 'Compare the price and vehicle, then choose your driver.' : 'Offers appear here automatically as drivers respond.'}</Text>
           </View>
+          {loading ? <ActivityIndicator color={colors.rust} /> : <View style={styles.liveDot} />}
         </Card>
         {notice ? <Text style={styles.noticeText}>{notice}</Text> : null}
 
         {offers.length === 0 ? (
           <Card style={styles.emptyDriversCard}>
-            <Text style={styles.broadcastTitle}>{loading ? 'Checking for offers...' : 'No driver offer yet.'}</Text>
-            <Text style={styles.subtle}>Keep this screen open. New offers arrive through the private realtime channel.</Text>
+            <View style={styles.emptyOfferIcon}><Ionicons name="car-sport-outline" size={28} color={colors.rust} /></View>
+            <Text style={styles.broadcastTitle}>{loading ? 'Checking for offers…' : 'Waiting for the first offer'}</Text>
+            <Text style={styles.emptyOfferText}>You can leave this screen open. We refresh automatically when a nearby driver responds.</Text>
             {loading ? <ActivityIndicator color={colors.rust} /> : null}
           </Card>
         ) : null}
@@ -1146,12 +1468,16 @@ function OffersScreen({
         {offers.map((offer) => (
           <DriverOffer key={offer.id} offer={offer} order={order} onProfile={onProfile} onChoose={onChoose} />
         ))}
-        <Pressable onPress={onRefresh} disabled={loading} style={styles.outlineButton}>
-          <Text style={styles.outlineText}>{loading ? 'Refreshing...' : 'Refresh offers'}</Text>
-        </Pressable>
-        <Pressable onPress={onCancel} disabled={loading} style={styles.outlineButton}>
-          <Text style={styles.outlineText}>Cancel ride request</Text>
-        </Pressable>
+        <View style={styles.offerFooterActions}>
+          <Pressable onPress={onRefresh} disabled={loading} style={styles.refreshOffersButton}>
+            {loading ? <ActivityIndicator size="small" color={colors.navy} /> : <Ionicons name="refresh" size={19} color={colors.navy} />}
+            <Text style={styles.refreshOffersText}>{loading ? 'Refreshing…' : 'Refresh offers'}</Text>
+          </Pressable>
+          <Pressable onPress={onCancel} disabled={loading} style={styles.cancelRideButton}>
+            <Ionicons name="close-circle-outline" size={19} color="#b84747" />
+            <Text style={styles.cancelRideText}>Cancel request</Text>
+          </Pressable>
+        </View>
         <SafetyText text="Your safety is our priority" />
       </ScrollView>
     </View>
@@ -1169,77 +1495,50 @@ function ProfileScreen({ driver, onBack, onChoose }: { driver: CatalogDriver | n
     <View style={styles.screen}>
       <ProfileHeader onBack={onBack} />
       <ScrollView style={styles.profileSheet} contentContainerStyle={styles.profileContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.profileTop}>
-          <Avatar initials={initials} size={116} />
-          <View style={{ flex: 1 }}>
-            <View style={styles.nameRow}>
-              <Text style={styles.profileName}>{name}</Text>
-              <View style={styles.topRated}>
-                <Ionicons name="shield-checkmark-outline" size={12} color={colors.rust} />
-                <Text style={styles.topRatedText}>{driver?.approval_state ?? 'approved'}</Text>
+        <Card style={styles.profileHeroCard}>
+          <View style={styles.profileHeroMain}>
+            <Avatar initials={initials} size={78} />
+            <View style={styles.profileHeroCopy}>
+              <Text numberOfLines={2} ellipsizeMode="middle" style={styles.profileHeroName}>{name}</Text>
+              <View style={styles.profileStatusRow}>
+                <View style={styles.verifiedPill}><Ionicons name="shield-checkmark" size={14} color={colors.green} /><Text style={styles.verifiedPillText}>Verified</Text></View>
+                <View style={[styles.onlinePill, !driver?.online_status && styles.offlinePill]}><View style={[styles.profileOnlineDot, !driver?.online_status && { backgroundColor: colors.faded }]} /><Text style={styles.onlinePillText}>{driver?.online_status ? 'Online' : 'Offline'}</Text></View>
               </View>
             </View>
-            <Text style={styles.profileMeta}>{driver?.online_status ? 'Online now' : 'Approved profile'}</Text>
-            <Text style={styles.profileMeta}>{vehicle}</Text>
-            <View style={styles.languageRow}>
-              {[vehicleType, plate].map((item) => (
-                <Text key={item} style={styles.languagePill}>{item}</Text>
-              ))}
-            </View>
           </View>
-          <View style={styles.verifiedBox}>
-            <MaterialCommunityIcons name="shield-check" size={54} color={colors.green} />
-            <Text style={styles.verifiedTitle}>Verified Driver</Text>
-            <Text style={styles.verifiedText}>License & Background Checked</Text>
+          <View style={styles.profileTrustLine}>
+            <Ionicons name="lock-closed-outline" size={16} color={colors.muted} />
+            <Text style={styles.profileTrustText}>Identity and required documents reviewed by MoroRide</Text>
           </View>
-        </View>
-
-        <Card style={styles.statsGrid}>
-          <ProfileStat icon="time-outline" label="On time" value="98%" />
-          <ProfileStat icon="shield-checkmark-outline" label="Safe driving" value="100%" />
-          <ProfileStat icon="chatbox-outline" label="Great" value="communication" />
-          <ProfileStat icon="person-outline" label="Local" value="expert" />
         </Card>
 
-        <Text style={styles.fieldTitle}>Vehicle</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.vehiclePhotos}>
-          {[1, 2, 3, 4].map((item) => (
-            <View key={item} style={styles.vehiclePhoto}>
-              <FontAwesome5 name="car-side" size={54} color={colors.navy} />
-              {item === 1 ? <Text style={styles.photoCount}>1/4</Text> : null}
-            </View>
-          ))}
-        </ScrollView>
-        <Text style={styles.carTitle}>{vehicle} <Text style={styles.yearPill}>{plate}</Text></Text>
-        <View style={styles.vehicleSpecs}>
-          {[vehicleType, driver?.approval_state ?? 'approved', driver?.online_status ? 'online' : 'offline'].map((spec) => (
-            <Text key={spec} style={styles.specText}>{spec}</Text>
-          ))}
-        </View>
+        <View style={styles.profileSectionHead}><Text style={styles.profileSectionTitle}>Vehicle details</Text><Text style={styles.profileSectionMeta}>Live profile</Text></View>
+        {driver?.vehicle_photos?.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.profilePhotoGallery}>
+            {driver.vehicle_photos.map((photo) => (
+              <View key={photo.id} style={styles.profilePhotoCard}>
+                <Image source={{ uri: photo.url }} style={styles.profilePhotoImage} resizeMode="cover" />
+                <View style={styles.profilePhotoLabel}><Text style={styles.profilePhotoLabelText}>{photo.type === 'vehicle_in' ? 'Interior' : 'Exterior'}</Text></View>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+        <Card style={styles.profileVehicleCard}>
+          <View style={styles.profileVehicleVisual}><FontAwesome5 name="car-side" size={48} color={colors.navy} /></View>
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={styles.profileVehicleName}>{vehicle}</Text>
+            <Text style={styles.profileVehicleType}>{vehicleType}</Text>
+            <View style={styles.plateBox}><Text style={styles.plateBoxLabel}>PLATE</Text><Text numberOfLines={1} style={styles.plateBoxValue}>{plate}</Text></View>
+          </View>
+        </Card>
 
-        <View style={styles.aboutBlock}>
-          <Text style={styles.fieldTitle}>About {name}</Text>
-          <Text style={styles.aboutText}>
-            This profile is loaded from the driver account and vehicle profile stored in the MoroRide database.
-          </Text>
-        </View>
-
-        <View style={styles.reviewsHeader}>
-          <Text style={styles.fieldTitle}>Driver records</Text>
-          <Text style={styles.viewAll}>Live data</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reviewStrip}>
-          {[
-            ['Driver ID', driver ? `#${driver.id}` : '-'],
-            ['Approval', driver?.approval_state ?? '-'],
-            ['Online', driver?.online_status ? 'yes' : 'no'],
-          ].map(([label, value]) => (
-            <Card key={label} style={styles.reviewCard}>
-              <Text style={styles.reviewName}>{label}</Text>
-              <Text style={styles.reviewText}>{value}</Text>
-            </Card>
-          ))}
-        </ScrollView>
+        <Card style={styles.profileRecordCard}>
+          <View style={styles.profileRecordItem}><Text style={styles.profileRecordLabel}>Driver ID</Text><Text style={styles.profileRecordValue}>{driver ? `#${driver.id}` : '—'}</Text></View>
+          <View style={styles.profileRecordDivider} />
+          <View style={styles.profileRecordItem}><Text style={styles.profileRecordLabel}>Approval</Text><Text style={[styles.profileRecordValue, { color: colors.green }]}>{driver?.approval_state ?? '—'}</Text></View>
+          <View style={styles.profileRecordDivider} />
+          <View style={styles.profileRecordItem}><Text style={styles.profileRecordLabel}>Availability</Text><Text style={styles.profileRecordValue}>{driver?.online_status ? 'Online' : 'Offline'}</Text></View>
+        </Card>
 
         <PrimaryButton label="Choose this Driver" onPress={onChoose} />
         <SafetyText text="Your safety is our priority" />
@@ -1248,7 +1547,7 @@ function ProfileScreen({ driver, onBack, onChoose }: { driver: CatalogDriver | n
   );
 }
 
-function TrackingScreen({ order, driver, driverCoord, notice, onBack, onChat, onPay, onComplete }: { order: Order | null; driver: CatalogDriver | null; driverCoord: DemoCoord | null; notice: string | null; onBack: () => void; onChat: () => void; onPay: () => void; onComplete: () => void }) {
+function TrackingScreen({ order, driver, driverCoord, notice, onBack, onChat, onCall, onPay, onComplete }: { order: Order | null; driver: CatalogDriver | null; driverCoord: DemoCoord | null; notice: string | null; onBack: () => void; onChat: () => void; onCall: () => void; onPay: () => void; onComplete: () => void }) {
   const driverName = driver?.name ?? 'Assigned driver';
   const vehicle = driver?.vehicle_name ?? driver?.vehicle_type ?? 'Vehicle pending';
   const plate = driver?.vehicle_plate ?? 'Plate pending';
@@ -1327,7 +1626,7 @@ function TrackingScreen({ order, driver, driverCoord, notice, onBack, onChat, on
 
         <View style={styles.actionGrid}>
           <MiniAction icon="chatbox-outline" label="Chat with driver" onPress={onChat} />
-          <MiniAction icon="call-outline" label="Call driver" />
+          <MiniAction icon="call-outline" label="Call driver" onPress={onCall} />
           <MiniAction icon="shield-checkmark-outline" label="Safety & Support" />
         </View>
         {order?.payment_method === 'card' ? (
@@ -1497,15 +1796,14 @@ function CompletedScreen({
     <View style={styles.screen}>
       <DarkHeader left={<Ionicons name="arrow-back" size={28} color={colors.white} />} />
       <ScrollView style={styles.sheet} contentContainerStyle={styles.completedContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.successCircle}>
-          <Ionicons name="checkmark" size={54} color={colors.white} />
-        </View>
-        <Text style={styles.completedTitle}>Ride completed!</Text>
-        <Text style={styles.completedSub}>Thank you for riding with MoroRide.</Text>
-        <View style={styles.dividerFlower}>
-          <View style={styles.smallLine} />
-          <MaterialCommunityIcons name="flower-outline" size={28} color={colors.line} />
-          <View style={styles.smallLine} />
+        <View style={styles.completedHero}>
+          <View style={styles.successCircle}>
+            <Ionicons name="checkmark" size={42} color={colors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.completedTitle}>Ride completed</Text>
+            <Text style={styles.completedSub}>Thank you for riding with MoroRide.</Text>
+          </View>
         </View>
 
         <Card style={styles.totalFareCard}>
@@ -1517,7 +1815,7 @@ function CompletedScreen({
             </View>
             <Text style={styles.subtle}>Paid to driver</Text>
           </View>
-          <MaterialCommunityIcons name="mosque" size={92} color={colors.rustLight} />
+          <View style={styles.fareIllustration}><MaterialCommunityIcons name="mosque" size={52} color={colors.rust} /></View>
         </Card>
 
         <Card style={styles.paidCard}>
@@ -1535,7 +1833,7 @@ function CompletedScreen({
         </Card>
 
         <Card style={styles.completedDriver}>
-          <Avatar initials={driver?.initials ?? 'DR'} size={82} />
+          <Avatar initials={driver?.initials ?? 'DR'} size={62} />
           <View style={{ flex: 1 }}>
             <Text style={styles.subtle}>Your driver</Text>
             <Text style={styles.profileName}>{driverName}</Text>
@@ -1552,7 +1850,7 @@ function CompletedScreen({
           <View style={styles.starsRow}>
             {[1, 2, 3, 4, 5].map((item) => (
               <Pressable key={item} onPress={() => setRating(item)}>
-                <Ionicons name={rating >= item ? 'star' : 'star-outline'} size={42} color={colors.rust} />
+                <Ionicons name={rating >= item ? 'star' : 'star-outline'} size={34} color={colors.rust} />
               </Pressable>
             ))}
           </View>
@@ -1570,15 +1868,6 @@ function CompletedScreen({
 function DarkHeader({ left, onNotifications }: { left: ReactNode; onNotifications?: () => void }) {
   return (
     <View style={styles.darkHeader}>
-      <View style={styles.statusRow}>
-        <Text style={styles.timeText}>9:41</Text>
-        <View style={styles.notch} />
-        <View style={styles.signalRow}>
-          <Ionicons name="cellular" size={19} color={colors.white} />
-          <Ionicons name="wifi" size={19} color={colors.white} />
-          <Ionicons name="battery-full" size={22} color={colors.white} />
-        </View>
-      </View>
       <View style={styles.headerNav}>
         <View style={styles.headerIcon}>{left}</View>
         <View style={styles.logoRow}>
@@ -1700,8 +1989,8 @@ function AppMenu({
           <Ionicons name="arrow-forward" size={22} color={colors.white} />
         </Pressable>
         <Pressable onPress={() => closeAfter(onSwitchRole)} style={styles.menuSwitch}>
-          <Ionicons name="swap-horizontal" size={20} color={colors.navy} />
-          <Text style={styles.menuSwitchText}>Switch to Driver app</Text>
+          <Ionicons name="log-out-outline" size={20} color={colors.navy} />
+          <Text style={styles.menuSwitchText}>Log out</Text>
         </Pressable>
         <Text style={styles.menuHint}>Move between the available screens.</Text>
       </Animated.View>
@@ -1713,10 +2002,12 @@ function NotificationPanel({
   notifications,
   loading,
   onClose,
+  onOpenCall,
 }: {
   notifications: AppNotification[];
   loading: boolean;
   onClose: () => void;
+  onOpenCall: (orderId: number) => void;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -1781,18 +2072,33 @@ function NotificationPanel({
 
         {!loading ? (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.notificationList}>
-            {notifications.map((notification) => (
-              <View key={notification.id} style={styles.notificationCard}>
-                <View style={styles.notificationIcon}>
-                  <Ionicons name={notificationIcon(notification.type) as never} size={20} color={colors.white} />
+            {notifications.map((notification) => {
+              const orderId = Number(notification.data?.order_id);
+              const incomingCall = notification.type === 'incoming_voice_call' && Number.isFinite(orderId);
+              const tone = notificationTone(notification.type);
+              return (
+              <Pressable
+                key={notification.id}
+                disabled={!incomingCall}
+                onPress={() => incomingCall && onOpenCall(orderId)}
+                style={[styles.notificationCard, !notification.read_at && styles.notificationCardUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}
+              >
+                <View style={[styles.notificationAccent, { backgroundColor: incomingCall ? colors.green : tone.fg }]} />
+                <View style={[styles.notificationIcon, { backgroundColor: incomingCall ? colors.greenSoft : tone.soft }]}>
+                  <Ionicons name={(incomingCall ? 'call' : notificationIcon(notification.type)) as never} size={19} color={incomingCall ? colors.green : tone.fg} />
                 </View>
                 <View style={{ flex: 1 }}>
+                  <View style={styles.notificationTopLine}>
+                    <Text style={[styles.notificationPill, { color: tone.fg }]}>{incomingCall ? 'Incoming call' : tone.label}</Text>
+                    {!notification.read_at ? <View style={[styles.notificationUnreadDot, { backgroundColor: tone.fg }]} /> : null}
+                  </View>
                   <Text style={styles.notificationCardTitle}>{notification.title}</Text>
                   <Text style={styles.notificationCardBody}>{notification.body}</Text>
-                  <Text style={styles.notificationType}>{notification.type.replace(/_/g, ' ')}</Text>
+                  <Text style={[styles.notificationType, { color: tone.fg }]}>{notification.type.replace(/_/g, ' ')}</Text>
+                  {incomingCall ? <Text style={styles.notificationType}>Tap to answer</Text> : null}
                 </View>
-              </View>
-            ))}
+              </Pressable>
+            )})}
           </ScrollView>
         ) : null}
       </Animated.View>
@@ -1801,6 +2107,11 @@ function NotificationPanel({
 }
 
 function notificationIcon(type: string) {
+  if (type.includes('call')) return 'call-outline';
+  if (type.includes('approved')) return 'shield-checkmark-outline';
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) return 'alert-circle-outline';
+  if (type.includes('document') || type.includes('verification')) return 'document-text-outline';
+  if (type.includes('chat') || type.includes('message')) return 'chatbubble-ellipses-outline';
   if (type.includes('driver')) return 'shield-checkmark-outline';
   if (type.includes('points')) return 'wallet-outline';
   if (type.includes('payment')) return 'card-outline';
@@ -1808,18 +2119,25 @@ function notificationIcon(type: string) {
   return 'car-sport-outline';
 }
 
+function notificationTone(type: string) {
+  if (type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
+    return { bg: colors.card, border: colors.line, soft: colors.greenSoft, fg: colors.green, label: 'Approved' };
+  }
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
+    return { bg: colors.card, border: colors.line, soft: '#fff1ef', fg: colors.rustDark, label: 'Attention' };
+  }
+  if (type.includes('document') || type.includes('verification') || type.includes('driver')) {
+    return { bg: colors.card, border: colors.line, soft: '#fff8ef', fg: colors.rust, label: 'Verification' };
+  }
+  if (type.includes('chat') || type.includes('message') || type.includes('call')) {
+    return { bg: colors.card, border: colors.line, soft: '#eef6fb', fg: colors.navy, label: 'Message' };
+  }
+  return { bg: colors.card, border: colors.line, soft: '#f6f2ec', fg: colors.rust, label: 'Activity' };
+}
+
 function ProfileHeader({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.profileHeader}>
-      <View style={styles.statusRow}>
-        <Text style={styles.timeText}>9:41</Text>
-        <View style={styles.notch} />
-        <View style={styles.signalRow}>
-          <Ionicons name="cellular" size={19} color={colors.white} />
-          <Ionicons name="wifi" size={19} color={colors.white} />
-          <Ionicons name="battery-full" size={22} color={colors.white} />
-        </View>
-      </View>
       <View style={styles.profileNav}>
         <Pressable onPress={onBack}>
           <Ionicons name="chevron-back" size={34} color={colors.white} />
@@ -1834,15 +2152,6 @@ function ProfileHeader({ onBack }: { onBack: () => void }) {
 function LightHeader({ title, subtitle, onBack, right }: { title: string; subtitle?: string; onBack: () => void; right: ReactNode }) {
   return (
     <View style={styles.lightHeader}>
-      <View style={styles.lightStatus}>
-        <Text style={styles.lightTime}>9:41</Text>
-        <View style={styles.notch} />
-        <View style={styles.signalRow}>
-          <Ionicons name="cellular" size={19} color={colors.navy} />
-          <Ionicons name="wifi" size={19} color={colors.navy} />
-          <Ionicons name="battery-full" size={22} color={colors.navy} />
-        </View>
-      </View>
       <View style={styles.lightNav}>
         <Pressable onPress={onBack} style={styles.lightIconButton}>
           <Ionicons name="chevron-back" size={28} color={colors.navy} />
@@ -1862,8 +2171,8 @@ function Card({ children, style }: { children: ReactNode; style?: object }) {
 }
 
 function BookingRoutePickerMap({ pickup, dropoff, onPickPickup, onPickDropoff }: {
-  pickup: DemoCoord | null;
-  dropoff: DemoCoord | null;
+  pickup: PickedLocation | null;
+  dropoff: PickedLocation | null;
   onPickPickup: () => void;
   onPickDropoff: () => void;
 }) {
@@ -1896,12 +2205,18 @@ function BookingRoutePickerMap({ pickup, dropoff, onPickPickup, onPickDropoff }:
       <View style={styles.bookingMapActions}>
         <Pressable accessibilityRole="button" accessibilityLabel="Choose Pickup on map" onPress={onPickPickup} style={[styles.mapPointButton, pickup && styles.mapPointButtonDone]}>
           <View style={[styles.mapPointDot, { backgroundColor: colors.navy }]}><Ionicons name={pickup ? 'checkmark' : 'location'} size={16} color={colors.white} /></View>
-          <Text style={styles.mapPointButtonText}>FROM</Text>
+          <View style={styles.mapPointCopy}>
+            <Text style={styles.mapPointButtonText}>PICKUP</Text>
+            <Text numberOfLines={1} style={styles.mapPointAddress}>{pickup?.address ?? 'Use my location or choose on map'}</Text>
+          </View>
           <Ionicons name="chevron-forward" size={17} color={colors.navy} />
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Choose Drop-off on map" onPress={onPickDropoff} style={[styles.mapPointButton, dropoff && styles.mapPointButtonDone]}>
           <View style={[styles.mapPointDot, { backgroundColor: colors.rust }]}><Ionicons name={dropoff ? 'checkmark' : 'flag'} size={16} color={colors.white} /></View>
-          <Text style={styles.mapPointButtonText}>TO</Text>
+          <View style={styles.mapPointCopy}>
+            <Text style={styles.mapPointButtonText}>DROP-OFF</Text>
+            <Text numberOfLines={1} style={styles.mapPointAddress}>{dropoff?.address ?? 'Choose your destination'}</Text>
+          </View>
           <Ionicons name="chevron-forward" size={17} color={colors.navy} />
         </Pressable>
       </View>
@@ -1974,33 +2289,28 @@ function DriverOffer({ offer, order, onProfile, onChoose }: { offer: OrderOffer;
   return (
     <Card style={styles.driverOffer}>
       <View style={styles.offerTop}>
-        <Avatar initials={driver.initials} size={88} />
-        <View style={{ flex: 1 }}>
-          <View style={styles.nameRow}>
-            <Text style={styles.driverName}>{driver.name}</Text>
-            <Text style={[styles.driverStatus, driver.online_status && styles.driverStatusOnline]}>
-              {driver.online_status ? 'Online' : 'Approved'}
-            </Text>
+        <Avatar initials={driver.initials} size={64} />
+        <View style={styles.offerDriverCopy}>
+          <Text numberOfLines={2} ellipsizeMode="middle" style={styles.offerDriverName}>{driver.name}</Text>
+          <View style={styles.offerDriverMetaRow}>
+            <Text style={[styles.driverStatus, driver.online_status && styles.driverStatusOnline]}>{driver.online_status ? 'Online' : 'Verified'}</Text>
+            <Text numberOfLines={1} style={styles.offerVehicleText}>{vehicle}</Text>
           </View>
-          <Text style={styles.routeValue}>{vehicle}</Text>
-          <Text style={styles.profileMeta}>
-            {driver.vehicle_type ?? 'vehicle'}{driver.vehicle_plate ? ` - ${driver.vehicle_plate}` : ''}
-          </Text>
-          <Text style={styles.profileMeta}>{offer.message || (offer.type === 'counter' ? 'Counter offer' : 'Accepted your fare')}</Text>
         </View>
-        <View style={styles.carThumb}>
-          <FontAwesome5 name="car-side" size={45} color={colors.navy} />
-        </View>
+        <View style={styles.offerVerifiedIcon}><Ionicons name="shield-checkmark" size={22} color={colors.green} /></View>
       </View>
 
       <View style={styles.offerFacts}>
-        <Fact label="Offered price" value={price} />
-        <Fact label="Ride ETA" value={order ? `${order.eta_min} min` : '-'} />
-        <View style={styles.verifiedFact}>
-          <MaterialCommunityIcons name="shield-check-outline" size={30} color={colors.green} />
-          <Text style={styles.verifiedFactText}>{driver.approval_state ?? 'approved'}</Text>
+        <View style={styles.offerFactPrimary}>
+          <View style={styles.offerFactIcon}><Ionicons name="pricetag-outline" size={18} color={colors.rust} /></View>
+          <View style={{ flex: 1 }}><Text style={styles.offerFactLabel}>{offer.type === 'counter' ? 'COUNTER OFFER' : 'RIDE PRICE'}</Text><Text style={styles.offerPrice}>{price}</Text></View>
+        </View>
+        <View style={styles.offerFactSecondary}>
+          <View style={styles.offerFactIcon}><Ionicons name="time-outline" size={18} color={colors.rust} /></View>
+          <View><Text style={styles.offerFactLabel}>ARRIVES IN</Text><Text style={styles.offerEta}>{order ? `${order.eta_min} min` : '—'}</Text></View>
         </View>
       </View>
+      <Text style={styles.offerMessage}>{offer.message || (offer.type === 'counter' ? 'The driver proposed a new fare for your trip.' : 'The driver accepted your requested fare.')}</Text>
 
       <View style={styles.offerButtons}>
         <Pressable onPress={() => onProfile(offer)} style={styles.outlineButton}>
@@ -2090,7 +2400,10 @@ function RouteMap({
   distance: number;
 }) {
   // Real Google map on both native (react-native-maps) and web (Embed iframe).
-  if (hasGoogleMapsKey) {
+  // react-native-maps uses the native Google Maps SDK on Android and does not
+  // need the browser Embed key. The old check incorrectly showed the slow
+  // nine-tile fallback in Expo whenever the web key was absent.
+  if (Platform.OS !== 'web' || hasGoogleMapsKey) {
     return (
       <>
         <NativeGoogleRouteMap
@@ -2214,42 +2527,46 @@ function SafetyText({ text }: { text: string }) {
 }
 
 const colors = {
-  navy: '#0a2745',
-  navy2: '#071d34',
+  navy: '#082b4c',
+  navy2: '#061f38',
   white: '#ffffff',
-  cream: '#fffdf9',
-  sand: '#fbf5ee',
-  card: '#fffefa',
-  line: '#eadfd3',
-  muted: '#637184',
-  faded: '#aeb6c1',
-  rust: '#c85f37',
-  rustDark: '#ad4f2e',
-  rustLight: '#d79a79',
-  gold: '#c99b71',
-  green: '#2f7d67',
-  greenSoft: '#e7f3ed',
+  cream: '#fcfaf7',
+  sand: '#f7f4ef',
+  card: '#ffffff',
+  line: '#e6e0d8',
+  muted: '#66788a',
+  faded: '#9ba7b4',
+  rust: '#c66b43',
+  rustDark: '#a94f2f',
+  rustLight: '#dca486',
+  gold: '#d49a55',
+  green: '#2f7d57',
+  greenSoft: '#e8f5ee',
 };
 
 const shadow = {
   shadowColor: '#09223d',
-  shadowOpacity: 0.12,
-  shadowRadius: 18,
-  shadowOffset: { width: 0, height: 10 },
-  elevation: 4,
+  shadowOpacity: 0.08,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 2,
 };
 
 const styles = StyleSheet.create({
+  appShell: {
+    backgroundColor: '#f5f1ec',
+    flex: 1,
+    position: 'relative',
+  },
   page: {
-    alignItems: 'center',
+    alignItems: Platform.OS === 'web' ? 'center' : 'stretch',
     backgroundColor: '#f5f1ec',
     flex: 1,
   },
   phone: {
     backgroundColor: colors.cream,
     flex: 1,
-    maxWidth: 430,
-    overflow: 'hidden',
+    overflow: Platform.OS === 'web' ? 'hidden' : 'visible',
     position: 'relative',
     width: '100%',
     ...(Platform.OS === 'web'
@@ -2259,9 +2576,88 @@ const styles = StyleSheet.create({
           borderWidth: 1,
           marginVertical: 16,
           maxHeight: 920,
+          maxWidth: 430,
           boxShadow: '0 24px 80px rgba(8, 26, 45, .18)' as never,
         }
       : null),
+  },
+  freeLaunchWrap: {
+    alignItems: 'center',
+    elevation: 40,
+    left: 0,
+    paddingHorizontal: 14,
+    position: 'absolute',
+    right: 0,
+    top: Platform.OS === 'web' ? 28 : 54,
+    zIndex: 200,
+  },
+  freeLaunchCard: {
+    alignItems: 'flex-start',
+    backgroundColor: '#151a21',
+    borderColor: 'rgba(255,255,255,.08)',
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    maxWidth: 430,
+    paddingBottom: 18,
+    paddingLeft: 16,
+    paddingRight: 12,
+    paddingTop: 18,
+    width: '100%',
+    ...shadow,
+    elevation: 40,
+  },
+  freeLaunchStar: {
+    alignItems: 'center',
+    backgroundColor: colors.gold,
+    borderRadius: 18,
+    height: 38,
+    justifyContent: 'center',
+    marginTop: 2,
+    width: 38,
+  },
+  freeLaunchCopy: {
+    flex: 1,
+    gap: 8,
+  },
+  freeLaunchTitleRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  freeLaunchTitle: {
+    color: '#fffaf0',
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
+  billingOffPill: {
+    backgroundColor: '#dff5f1',
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  billingOffText: {
+    color: '#12756b',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  freeLaunchBody: {
+    color: 'rgba(255,250,240,.72)',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  freeLaunchClose: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,.12)',
+    borderRadius: 999,
+    height: 30,
+    justifyContent: 'center',
+    marginLeft: -4,
+    width: 30,
   },
   screen: {
     backgroundColor: colors.navy,
@@ -2273,15 +2669,15 @@ const styles = StyleSheet.create({
   },
   darkHeader: {
     backgroundColor: colors.navy,
-    minHeight: 174,
-    paddingHorizontal: 24,
-    paddingTop: 14,
+    minHeight: 92,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
   profileHeader: {
     backgroundColor: colors.navy,
-    minHeight: 150,
-    paddingHorizontal: 24,
-    paddingTop: 14,
+    minHeight: 92,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
   statusRow: {
     alignItems: 'center',
@@ -2379,25 +2775,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(5, 18, 32, .34)',
   },
   notificationPanel: {
-    backgroundColor: colors.cream,
-    borderBottomColor: colors.line,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    borderBottomWidth: 1,
-    left: 0,
+    backgroundColor: '#fffefa',
+    borderColor: colors.line,
+    borderRadius: 28,
+    borderWidth: 1,
     maxHeight: '72%',
-    padding: 18,
-    paddingTop: 24,
+    padding: 14,
+    paddingTop: 14,
     position: 'absolute',
-    right: 0,
-    top: 0,
+    left: 10,
+    right: 10,
+    top: 82,
     ...shadow,
+    elevation: 18,
   },
   notificationHead: {
     alignItems: 'center',
+    backgroundColor: '#f6f0e8',
+    borderRadius: 22,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 12,
+    padding: 12,
   },
   notificationTitle: {
     color: colors.navy,
@@ -2416,31 +2815,72 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   notificationList: {
-    gap: 10,
-    paddingBottom: 8,
+    gap: 9,
+    paddingBottom: 6,
   },
   notificationCard: {
     alignItems: 'flex-start',
     backgroundColor: colors.card,
-    borderColor: colors.line,
-    borderRadius: 14,
+    borderColor: '#f0ebe4',
+    borderRadius: 20,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
+    overflow: 'hidden',
     padding: 13,
+    paddingLeft: 15,
+    position: 'relative',
+    shadowColor: '#09223d',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
+  },
+  notificationCardUnread: {
+    backgroundColor: '#fffdf8',
+    borderColor: '#ead9bf',
+    shadowColor: '#7a431f',
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 3,
+  },
+  notificationAccent: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    width: 4,
   },
   notificationIcon: {
     alignItems: 'center',
     backgroundColor: colors.navy,
-    borderRadius: 12,
-    height: 40,
+    borderRadius: 16,
+    height: 44,
     justifyContent: 'center',
-    width: 40,
+    width: 44,
   },
   notificationCardTitle: {
     color: colors.navy,
     fontSize: 16,
     fontWeight: '900',
+  },
+  notificationPill: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  notificationTopLine: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    marginBottom: 5,
+  },
+  notificationUnreadDot: {
+    borderRadius: 4,
+    height: 8,
+    width: 8,
   },
   notificationCardBody: {
     color: colors.muted,
@@ -2593,17 +3033,26 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   gate: {
-    alignItems: 'center',
-    gap: 14,
+    alignItems: 'stretch',
+    flexGrow: 1,
+    gap: 12,
     justifyContent: 'center',
-    paddingHorizontal: 26,
+    paddingBottom: 28,
+    paddingHorizontal: 20,
+    paddingTop: 24,
   },
+  gateHero: { alignItems: 'center', marginBottom: 6 },
+  gateLogoShell: { alignItems: 'center', backgroundColor: colors.white, borderRadius: 24, height: 82, justifyContent: 'center', marginBottom: 16, width: 82, ...shadow },
+  gateEyebrow: { color: colors.rust, fontSize: 11, fontWeight: '900', letterSpacing: 1.4, marginBottom: 6 },
   authPage: {
     alignItems: 'center',
     backgroundColor: colors.navy,
     paddingHorizontal: 24,
-    paddingTop: 26,
+    flexGrow: 1,
+    paddingBottom: 32,
+    paddingTop: 20,
   },
+  authShell: { backgroundColor: colors.navy },
   authBack: {
     alignItems: 'center',
     alignSelf: 'flex-start',
@@ -2630,31 +3079,32 @@ const styles = StyleSheet.create({
   authDividerText: { color: colors.faded, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   authCreate: { alignItems: 'center', borderColor: colors.rust, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 50 },
   authCreateText: { color: colors.rust, fontSize: 15, fontWeight: '800' },
-  gateLogo: {
-    height: 76,
-    width: 76,
-  },
+  gateLogo: { height: 58, width: 58 },
   gateBrand: {
     color: colors.navy,
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '900',
-    letterSpacing: 0.5,
+    letterSpacing: -0.5,
+    textAlign: 'center',
   },
   gateSub: {
     color: colors.muted,
     fontSize: 14,
-    marginBottom: 8,
+    lineHeight: 20,
+    marginBottom: 10,
     textAlign: 'center',
   },
   gateCard: {
     alignItems: 'center',
     backgroundColor: colors.white,
     borderColor: colors.line,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 14,
-    padding: 18,
+    minHeight: 82,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     width: '100%',
     ...shadow,
   },
@@ -2796,17 +3246,20 @@ const styles = StyleSheet.create({
   },
   signupRoles: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 6,
+    gap: 7,
+    marginBottom: 18,
     width: '100%',
   },
   signupRole: {
+    alignItems: 'center',
     backgroundColor: colors.white,
     borderColor: colors.line,
     borderRadius: 999,
     borderWidth: 1,
     flex: 1,
-    paddingVertical: 9,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 7,
   },
   signupRoleActive: {
     backgroundColor: colors.navy,
@@ -2814,7 +3267,7 @@ const styles = StyleSheet.create({
   },
   signupRoleText: {
     color: colors.navy,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     textAlign: 'center',
     textTransform: 'capitalize',
@@ -2823,24 +3276,23 @@ const styles = StyleSheet.create({
     color: colors.white,
   },
   signupField: {
-    marginTop: 12,
     width: '100%',
   },
   signupLabel: {
     color: colors.navy,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 7,
   },
   signupInput: {
     backgroundColor: colors.white,
     borderColor: colors.line,
-    borderRadius: 12,
+    borderRadius: 15,
     borderWidth: 1,
     color: colors.navy,
-    fontSize: 15,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    fontSize: 16,
+    minHeight: 54,
+    paddingHorizontal: 16,
   },
   signupNote: {
     color: colors.muted,
@@ -2857,9 +3309,10 @@ const styles = StyleSheet.create({
   signupSubmit: {
     alignItems: 'center',
     backgroundColor: colors.navy,
-    borderRadius: 14,
+    borderRadius: 16,
     marginTop: 18,
-    paddingVertical: 15,
+    justifyContent: 'center',
+    minHeight: 56,
     width: '100%',
   },
   signupSubmitText: {
@@ -2876,6 +3329,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  signupPage: {
+    backgroundColor: colors.cream,
+    flexGrow: 1,
+    paddingBottom: 34,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+  },
+  signupTopbar: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 52 },
+  signupBack: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 14, borderWidth: 1, height: 44, justifyContent: 'center', width: 44 },
+  signupBrand: { alignItems: 'center', flexDirection: 'row', gap: 7 },
+  signupLogo: { height: 34, width: 34 },
+  signupBrandText: { color: colors.navy, fontSize: 17, fontWeight: '900' },
+  signupTopbarSpacer: { width: 44 },
+  signupHero: { alignItems: 'center', marginBottom: 20, marginTop: 20 },
+  signupEyebrow: { color: colors.rust, fontSize: 11, fontWeight: '900', letterSpacing: 1.5, marginBottom: 7 },
+  signupTitle: { color: colors.navy, fontSize: 30, fontWeight: '900', letterSpacing: -0.8, lineHeight: 36, textAlign: 'center' },
+  signupSubtitle: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 7, textAlign: 'center' },
+  signupForm: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 22, borderWidth: 1, gap: 16, padding: 16, ...shadow },
+  signupTerms: { color: colors.faded, fontSize: 11, lineHeight: 16, marginTop: 14, paddingHorizontal: 16, textAlign: 'center' },
   sheet: {
     backgroundColor: colors.cream,
     borderTopLeftRadius: 28,
@@ -2884,13 +3356,13 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   bookingContent: {
-    padding: 14,
-    paddingBottom: 24,
+    padding: 16,
+    paddingBottom: 34,
   },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.line,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     ...shadow,
   },
@@ -2903,7 +3375,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: 18,
     borderWidth: 1,
-    height: 280,
+    height: 360,
     marginBottom: 14,
     overflow: 'hidden',
     position: 'relative',
@@ -2928,7 +3400,7 @@ const styles = StyleSheet.create({
   bookingMapEmptyHint: { color: colors.muted, fontSize: 12, marginTop: 4 },
   bookingMapActions: {
     bottom: 10,
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
     left: 10,
     position: 'absolute',
@@ -2941,16 +3413,55 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: 14,
     borderWidth: 1,
-    flex: 1,
     flexDirection: 'row',
     gap: 7,
-    minHeight: 52,
-    paddingHorizontal: 10,
+    minHeight: 58,
+    paddingHorizontal: 12,
     ...shadow,
   },
   mapPointButtonDone: { borderColor: colors.green },
   mapPointDot: { alignItems: 'center', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
-  mapPointButtonText: { color: colors.navy, flex: 1, fontSize: 12, fontWeight: '900', letterSpacing: .8 },
+  mapPointCopy: { flex: 1 },
+  mapPointButtonText: { color: colors.navy, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  mapPointAddress: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 3 },
+  tripMetricsCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 4,
+    marginTop: 0,
+    padding: 14,
+  },
+  tripMetric: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  tripMetricIcon: {
+    alignItems: 'center',
+    backgroundColor: '#eef6fb',
+    borderRadius: 14,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  tripMetricLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tripMetricValue: {
+    color: colors.navy,
+    fontSize: 19,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  tripMetricDivider: {
+    backgroundColor: colors.line,
+    height: 46,
+    width: 1,
+  },
   routeRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -3216,6 +3727,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  useSuggestedButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#f7f1eb',
+    borderColor: colors.line,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  useSuggestedText: {
+    color: colors.navy,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   priceInputCard: {
     gap: 12,
     marginTop: 14,
@@ -3277,6 +3805,13 @@ const styles = StyleSheet.create({
   },
   paymentChoiceActive: {
     backgroundColor: colors.navy,
+  },
+  freeModeHint: {
+    color: colors.green,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 14,
+    marginTop: -6,
   },
   paymentIcon: {
     alignItems: 'center',
@@ -3392,6 +3927,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     padding: 16,
   },
+  liveDot: { backgroundColor: colors.green, borderColor: colors.white, borderRadius: 8, borderWidth: 3, height: 16, width: 16 },
   broadcastTitle: {
     color: colors.navy,
     fontSize: 18,
@@ -3410,18 +3946,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emptyDriversCard: {
+    alignItems: 'center',
+    gap: 8,
     marginTop: 16,
-    padding: 16,
+    paddingHorizontal: 22,
+    paddingVertical: 26,
   },
+  emptyOfferIcon: { alignItems: 'center', backgroundColor: colors.rustLight, borderRadius: 22, height: 54, justifyContent: 'center', marginBottom: 2, width: 54 },
+  emptyOfferText: { color: colors.muted, fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  offerFooterActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  refreshOffersButton: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 15, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 7, justifyContent: 'center', minHeight: 52, ...shadow },
+  refreshOffersText: { color: colors.navy, fontSize: 13, fontWeight: '900' },
+  cancelRideButton: { alignItems: 'center', backgroundColor: '#fff5f3', borderColor: '#efcbc5', borderRadius: 15, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 7, justifyContent: 'center', minHeight: 52 },
+  cancelRideText: { color: '#b84747', fontSize: 13, fontWeight: '900' },
   driverOffer: {
     marginTop: 16,
-    padding: 14,
+    padding: 16,
   },
   offerTop: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 13,
   },
+  offerDriverCopy: { flex: 1, minWidth: 0 },
+  offerDriverName: { color: colors.navy, fontSize: 19, fontWeight: '900', lineHeight: 23 },
+  offerDriverMetaRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 7 },
+  offerVehicleText: { color: colors.muted, flex: 1, fontSize: 13, fontWeight: '700', textTransform: 'capitalize' },
+  offerVerifiedIcon: { alignItems: 'center', backgroundColor: colors.greenSoft, borderRadius: 14, height: 42, justifyContent: 'center', width: 42 },
   avatar: {
     alignItems: 'center',
     backgroundColor: '#d9c8b8',
@@ -3494,13 +4045,17 @@ const styles = StyleSheet.create({
     width: 102,
   },
   offerFacts: {
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
     flexDirection: 'row',
+    gap: 9,
     marginTop: 16,
-    overflow: 'hidden',
   },
+  offerFactPrimary: { alignItems: 'center', backgroundColor: '#fbf7f1', borderColor: colors.line, borderRadius: 15, borderWidth: 1, flex: 1.2, flexDirection: 'row', gap: 9, minHeight: 76, padding: 11 },
+  offerFactSecondary: { alignItems: 'center', backgroundColor: '#fbf7f1', borderColor: colors.line, borderRadius: 15, borderWidth: 1, flex: .8, flexDirection: 'row', gap: 8, minHeight: 76, padding: 11 },
+  offerFactIcon: { alignItems: 'center', backgroundColor: colors.white, borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
+  offerFactLabel: { color: colors.muted, fontSize: 9, fontWeight: '900', letterSpacing: .7 },
+  offerPrice: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 5 },
+  offerEta: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 5 },
+  offerMessage: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 11 },
   fact: {
     borderRightColor: colors.line,
     borderRightWidth: 1,
@@ -3573,9 +4128,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profileContent: {
-    padding: 14,
-    paddingBottom: 28,
+    gap: 14,
+    padding: 16,
+    paddingBottom: 42,
   },
+  profileHeroCard: { padding: 16 },
+  profileHeroMain: { alignItems: 'center', flexDirection: 'row', gap: 14 },
+  profileHeroCopy: { flex: 1, minWidth: 0 },
+  profileHeroName: { color: colors.navy, fontSize: 21, fontWeight: '900', lineHeight: 25 },
+  profileStatusRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 9 },
+  verifiedPill: { alignItems: 'center', backgroundColor: colors.greenSoft, borderRadius: 999, flexDirection: 'row', gap: 4, paddingHorizontal: 9, paddingVertical: 5 },
+  verifiedPillText: { color: colors.green, fontSize: 11, fontWeight: '900' },
+  onlinePill: { alignItems: 'center', backgroundColor: '#eef8f2', borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 9, paddingVertical: 5 },
+  offlinePill: { backgroundColor: '#f0f1f2' },
+  profileOnlineDot: { backgroundColor: colors.green, borderRadius: 4, height: 7, width: 7 },
+  onlinePillText: { color: colors.navy, fontSize: 11, fontWeight: '800' },
+  profileTrustLine: { alignItems: 'center', borderTopColor: colors.line, borderTopWidth: 1, flexDirection: 'row', gap: 7, marginTop: 15, paddingTop: 13 },
+  profileTrustText: { color: colors.muted, flex: 1, fontSize: 11, lineHeight: 16 },
+  profileSectionHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 },
+  profileSectionTitle: { color: colors.navy, fontSize: 17, fontWeight: '900' },
+  profileSectionMeta: { color: colors.rust, fontSize: 10, fontWeight: '900', letterSpacing: .7, textTransform: 'uppercase' },
+  profileVehicleCard: { alignItems: 'center', flexDirection: 'row', gap: 15, padding: 14 },
+  profilePhotoGallery: { gap: 10, paddingRight: 4 },
+  profilePhotoCard: { backgroundColor: '#ebe3da', borderRadius: 17, height: 170, overflow: 'hidden', position: 'relative', width: 270 },
+  profilePhotoImage: { height: '100%', width: '100%' },
+  profilePhotoLabel: { backgroundColor: 'rgba(8,36,67,.82)', borderRadius: 999, bottom: 10, left: 10, paddingHorizontal: 10, paddingVertical: 6, position: 'absolute' },
+  profilePhotoLabelText: { color: colors.white, fontSize: 10, fontWeight: '900', letterSpacing: .6, textTransform: 'uppercase' },
+  profileVehicleVisual: { alignItems: 'center', backgroundColor: '#ebe3da', borderRadius: 17, height: 92, justifyContent: 'center', width: 108 },
+  profileVehicleName: { color: colors.navy, fontSize: 18, fontWeight: '900', textTransform: 'capitalize' },
+  profileVehicleType: { color: colors.muted, fontSize: 12, marginTop: 3, textTransform: 'capitalize' },
+  plateBox: { alignSelf: 'flex-start', backgroundColor: '#f8f6f2', borderColor: colors.line, borderRadius: 9, borderWidth: 1, marginTop: 9, paddingHorizontal: 9, paddingVertical: 5 },
+  plateBoxLabel: { color: colors.faded, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+  plateBoxValue: { color: colors.navy, fontSize: 11, fontWeight: '800', marginTop: 2, maxWidth: 130 },
+  profileRecordCard: { flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 14 },
+  profileRecordItem: { alignItems: 'center', flex: 1, gap: 5 },
+  profileRecordDivider: { backgroundColor: colors.line, width: 1 },
+  profileRecordLabel: { color: colors.muted, fontSize: 10, fontWeight: '700' },
+  profileRecordValue: { color: colors.navy, fontSize: 12, fontWeight: '900', textTransform: 'capitalize' },
   profileTop: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -4226,7 +4815,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     flexDirection: 'row',
     gap: 10,
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 30,
   },
   chatInput: {
     backgroundColor: colors.white,
@@ -4247,31 +4838,37 @@ const styles = StyleSheet.create({
     width: 44,
   },
   completedContent: {
+    padding: 16,
+    paddingBottom: 48,
+  },
+  completedHero: {
     alignItems: 'center',
-    padding: 14,
-    paddingBottom: 24,
+    flexDirection: 'row',
+    gap: 14,
+    paddingBottom: 18,
+    paddingHorizontal: 4,
+    paddingTop: 8,
   },
   successCircle: {
     alignItems: 'center',
     backgroundColor: colors.green,
     borderColor: '#abd0c3',
     borderRadius: 999,
-    borderWidth: 8,
-    height: 84,
+    borderWidth: 6,
+    height: 68,
     justifyContent: 'center',
-    marginTop: 28,
-    width: 84,
+    width: 68,
   },
   completedTitle: {
     color: colors.navy,
-    fontSize: 30,
-    fontWeight: '700',
-    marginTop: 20,
+    fontSize: 24,
+    fontWeight: '900',
   },
   completedSub: {
     color: colors.muted,
-    fontSize: 18,
-    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 19,
+    marginTop: 4,
   },
   dividerFlower: {
     alignItems: 'center',
@@ -4291,6 +4888,7 @@ const styles = StyleSheet.create({
     padding: 18,
     width: '100%',
   },
+  fareIllustration: { alignItems: 'center', backgroundColor: colors.rustLight, borderRadius: 18, height: 70, justifyContent: 'center', width: 70 },
   paidCard: {
     alignItems: 'center',
     flexDirection: 'row',

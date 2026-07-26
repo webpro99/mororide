@@ -6,13 +6,13 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ActionButton,
   EmptyState,
@@ -31,7 +31,9 @@ import {
   getConciergeOffers,
   getConciergeOrder,
   getConciergeOrders,
+  getNotifications,
   getOrderMessages,
+  markNotificationRead,
   rateConciergeOrder,
   restoreSession,
   sendOrderImage,
@@ -40,14 +42,34 @@ import {
 import { registerForPush, unregisterPush } from './push';
 import { createRealtimeClient } from './realtime';
 import { colors, radius } from './theme';
-import { Catalog, ChatMessage, Order, OrderOffer } from './types';
+import { AppNotification, Catalog, ChatMessage, Order, OrderOffer } from './types';
 
 const moroLogoMark = require('../assets/moro_logo_mark_transparent.png');
 
 type Screen = 'book' | 'offers' | 'track' | 'chat' | 'history';
 
-export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => void }) {
+const MENU_ITEMS: Array<{ id: Screen; label: string; icon: string; subtitle: string }> = [
+  { id: 'book', label: 'Create booking', icon: 'add-circle', subtitle: 'Dispatch a guest ride' },
+  { id: 'offers', label: 'Driver offers', icon: 'pricetags', subtitle: 'Choose the best driver' },
+  { id: 'track', label: 'Track ride', icon: 'navigate-circle', subtitle: 'Follow active guest ride' },
+  { id: 'chat', label: 'Ride chat', icon: 'chatbubbles', subtitle: 'Message ride participants' },
+  { id: 'history', label: 'Ride history', icon: 'time', subtitle: 'Completed guest rides' },
+];
+
+const SCREEN_TITLES: Record<Screen, string> = {
+  book: 'Create booking',
+  offers: 'Driver Offers',
+  track: 'Track Ride',
+  chat: 'Ride Chat',
+  history: 'Ride History',
+};
+
+export default function ConciergeApp({ onSwitchRole, freeLaunch = false }: { onSwitchRole: () => void; freeLaunch?: boolean }) {
   const [screen, setScreen] = useState<Screen>('book');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationBadge, setNotificationBadge] = useState(0);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -96,6 +118,37 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (freeLaunch && payment === 'card') setPayment('cash');
+  }, [freeLaunch, payment]);
+
+  useEffect(() => {
+    if (!ready) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const all = await getNotifications();
+        if (!active) return;
+        setNotifications(all);
+        setNotificationBadge(all.filter((item) => !item.read_at).length);
+      } catch { /* best effort */ }
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [ready]);
+
+  async function openNotifications() {
+    setNotificationsOpen(true);
+    const unread = notifications.filter((item) => !item.read_at);
+    await Promise.all(unread.map((item) => markNotificationRead(item.id).catch(() => null)));
+    setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })));
+    setNotificationBadge(0);
+  }
 
   // Realtime: offers, status, and chat for the active order.
   useEffect(() => {
@@ -312,31 +365,20 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" translucent={false} backgroundColor={colors.sand} />
       <View style={styles.header}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu" onPress={() => setMenuOpen(true)} style={styles.menuButton}>
+          <Ionicons name="menu" size={25} color={colors.white} />
+        </Pressable>
         <Image source={moroLogoMark} style={styles.logo} resizeMode="contain" />
         <View style={{ flex: 1 }}>
-          <Text style={styles.brand}>MoroRide Concierge</Text>
-          <Text style={styles.brandSub}>Dispatch rides for your guests</Text>
+          <Text style={styles.brand}>MoroRide</Text>
+          <Text style={styles.brandSub}>Concierge · {SCREEN_TITLES[screen]}</Text>
         </View>
-        <Pressable onPress={switchRole} accessibilityLabel="Switch role" style={styles.switchBtn}>
-          <Ionicons name="swap-horizontal" size={20} color={colors.white} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Open notifications" onPress={openNotifications} style={styles.headerBell}>
+          <Ionicons name="notifications-outline" size={22} color={colors.white} />
+          {notificationBadge > 0 ? <View style={styles.headerBellBadge}><Text style={styles.headerBellBadgeText}>{notificationBadge > 9 ? '9+' : notificationBadge}</Text></View> : null}
         </Pressable>
-      </View>
-
-      <View style={styles.tabs}>
-        {(['book', 'offers', 'track', 'chat', 'history'] as Screen[]).map((tab) => (
-          <Pressable
-            key={tab}
-            onPress={() => {
-              if (tab === 'history') loadHistory();
-              setScreen(tab);
-            }}
-            style={[styles.tab, screen === tab && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, screen === tab && styles.tabTextActive]}>{tab}</Text>
-          </Pressable>
-        ))}
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
@@ -377,11 +419,14 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
                 <Ionicons name="cash-outline" size={18} color={payment === 'cash' ? colors.white : colors.navy} />
                 <Text style={[styles.payText, payment === 'cash' && styles.payTextActive]}>Cash</Text>
               </Pressable>
-              <Pressable onPress={() => setPayment('card')} style={[styles.payChoice, payment === 'card' && styles.payChoiceActive]}>
-                <Ionicons name="card-outline" size={18} color={payment === 'card' ? colors.white : colors.navy} />
-                <Text style={[styles.payText, payment === 'card' && styles.payTextActive]}>Card</Text>
-              </Pressable>
+              {!freeLaunch ? (
+                <Pressable onPress={() => setPayment('card')} style={[styles.payChoice, payment === 'card' && styles.payChoiceActive]}>
+                  <Ionicons name="card-outline" size={18} color={payment === 'card' ? colors.white : colors.navy} />
+                  <Text style={[styles.payText, payment === 'card' && styles.payTextActive]}>Card</Text>
+                </Pressable>
+              ) : null}
             </View>
+            {freeLaunch ? <Text style={styles.freeModeHint}>Billing off: card payments are disabled during the free launch period.</Text> : null}
             <ActionButton label="Dispatch guest ride" onPress={submitBooking} disabled={loading} icon={<MaterialCommunityIcons name="bell-ring-outline" size={18} color={colors.white} />} />
           </Panel>
         ) : null}
@@ -466,8 +511,129 @@ export default function ConciergeApp({ onSwitchRole }: { onSwitchRole: () => voi
           </Panel>
         ) : null}
       </ScrollView>
+      {menuOpen ? (
+        <View style={styles.menuLayer}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close navigation menu" onPress={() => setMenuOpen(false)} style={styles.menuBackdrop} />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuHead}>
+              <Image source={moroLogoMark} style={styles.menuMark} resizeMode="contain" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuEyebrow}>MORORIDE CONCIERGE</Text>
+                <Text style={styles.menuName}>{hotelName || 'Concierge desk'}</Text>
+              </View>
+              <Pressable onPress={() => setMenuOpen(false)} style={styles.menuClose}>
+                <Ionicons name="close" size={22} color={colors.navy} />
+              </Pressable>
+            </View>
+            <Text style={styles.menuSectionLabel}>CONCIERGE MENU</Text>
+            <View style={styles.menuItems}>
+              {MENU_ITEMS.map((item) => {
+                const active = item.id === screen;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => {
+                      if (item.id === 'history') loadHistory();
+                      setScreen(item.id);
+                      setMenuOpen(false);
+                    }}
+                    style={[styles.menuItem, active && styles.menuItemActive]}
+                  >
+                    <View style={[styles.menuItemIcon, active && styles.menuItemIconActive]}>
+                      <Ionicons name={(active ? item.icon : `${item.icon}-outline`) as never} size={20} color={active ? colors.white : colors.navy} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{item.label}</Text>
+                      <Text style={[styles.menuItemSub, active && styles.menuItemSubActive]}>{item.subtitle}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={active ? 'rgba(255,255,255,.7)' : colors.faded} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={() => { setMenuOpen(false); switchRole(); }} style={styles.menuLogout}>
+              <Ionicons name="log-out-outline" size={20} color={colors.rust} />
+              <Text style={styles.menuLogoutText}>Log out</Text>
+            </Pressable>
+            <View style={styles.menuFooter}>
+              <Image source={moroLogoMark} style={styles.menuFooterMark} resizeMode="contain" />
+              <Text style={styles.menuFooterText}>Your journey, our hospitality</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+      {notificationsOpen ? <ConciergeNotifications notifications={notifications} onClose={() => setNotificationsOpen(false)} /> : null}
     </SafeAreaView>
   );
+}
+
+function ConciergeNotifications({ notifications, onClose }: { notifications: AppNotification[]; onClose: () => void }) {
+  return (
+    <View style={styles.notificationLayer}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.notificationPanel}>
+        <View style={styles.notificationHead}>
+          <View>
+            <Text style={styles.menuEyebrow}>ACTIVITY</Text>
+            <Text style={styles.notificationTitle}>Notifications</Text>
+          </View>
+          <Pressable onPress={onClose} style={styles.menuClose}><Ionicons name="close" size={22} color={colors.navy} /></Pressable>
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.notificationList}>
+          {notifications.length === 0 ? (
+            <View style={styles.notificationEmpty}>
+              <Ionicons name="notifications-off-outline" size={26} color={colors.muted} />
+              <Text style={styles.bubbleText}>No notifications right now.</Text>
+            </View>
+          ) : notifications.map((item) => {
+            const tone = conciergeNotificationTone(item.type);
+            return (
+            <View key={item.id} style={[styles.notificationItem, !item.read_at && styles.notificationItemUnread, { backgroundColor: tone.bg, borderColor: tone.border }]}>
+              <View style={[styles.notificationAccent, { backgroundColor: tone.fg }]} />
+              <View style={[styles.notificationIcon, { backgroundColor: tone.soft }]}>
+                <Ionicons name={conciergeNotificationIcon(item.type) as never} size={19} color={tone.fg} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={styles.notificationTopLine}>
+                  <Text style={[styles.notificationItemLabel, { color: tone.fg }]}>{tone.label}</Text>
+                  {!item.read_at ? <View style={[styles.notificationUnreadDot, { backgroundColor: tone.fg }]} /> : null}
+                </View>
+                <Text style={styles.notificationItemTitle}>{item.title}</Text>
+                <Text style={styles.notificationItemBody}>{item.body}</Text>
+                <Text style={[styles.notificationItemMeta, { color: tone.fg }]}>{item.type.replace(/_/g, ' ')}</Text>
+              </View>
+            </View>
+          )})}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+function conciergeNotificationIcon(type: string) {
+  if (type.includes('call')) return 'call-outline';
+  if (type.includes('approved') || type.includes('completed')) return 'checkmark-circle-outline';
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) return 'alert-circle-outline';
+  if (type.includes('document') || type.includes('verification')) return 'document-text-outline';
+  if (type.includes('chat') || type.includes('message')) return 'chatbubble-ellipses-outline';
+  if (type.includes('ride') || type.includes('offer')) return 'car-sport-outline';
+  return 'notifications-outline';
+}
+
+function conciergeNotificationTone(type: string) {
+  if (type.includes('approved') || type.includes('completed') || type.includes('succeeded')) {
+    return { bg: colors.white, border: colors.line, soft: colors.greenSoft, fg: colors.success, label: 'Success' };
+  }
+  if (type.includes('rejected') || type.includes('failed') || type.includes('cancelled')) {
+    return { bg: colors.white, border: colors.line, soft: '#fff1ef', fg: colors.rustDark, label: 'Attention' };
+  }
+  if (type.includes('chat') || type.includes('message') || type.includes('call')) {
+    return { bg: colors.white, border: colors.line, soft: '#eef6fb', fg: colors.navy, label: 'Message' };
+  }
+  if (type.includes('ride') || type.includes('offer')) {
+    return { bg: colors.white, border: colors.line, soft: '#fff8ef', fg: colors.rust, label: 'Ride update' };
+  }
+  return { bg: colors.white, border: colors.line, soft: '#f6f2ec', fg: colors.rust, label: 'Activity' };
 }
 
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -532,20 +698,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.navy,
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    gap: 11,
+    minHeight: 92,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   logo: { height: 38, width: 38 },
-  brand: { color: colors.white, fontSize: 18, fontWeight: '900' },
-  brandSub: { color: '#b9cbe0', fontSize: 12, fontWeight: '600' },
-  switchBtn: { backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 999, padding: 10 },
-  tabs: { backgroundColor: colors.navy, flexDirection: 'row', gap: 6, paddingBottom: 12, paddingHorizontal: 12 },
-  tab: { borderRadius: 999, flex: 1, paddingVertical: 8 },
-  tabActive: { backgroundColor: colors.gold },
-  tabText: { color: '#b9cbe0', fontSize: 12, fontWeight: '800', textAlign: 'center', textTransform: 'capitalize' },
-  tabTextActive: { color: colors.navy },
-  body: { padding: 16, paddingBottom: 48 },
+  menuButton: { alignItems: 'center', borderColor: 'rgba(255,255,255,.2)', borderRadius: 12, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
+  brand: { color: colors.white, fontSize: 19, fontWeight: '900' },
+  brandSub: { color: '#b9cbe0', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  headerBell: { alignItems: 'center', borderColor: 'rgba(255,255,255,.22)', borderRadius: 13, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
+  headerBellBadge: { alignItems: 'center', backgroundColor: colors.rust, borderColor: colors.navy, borderRadius: 9, borderWidth: 2, justifyContent: 'center', minHeight: 18, minWidth: 18, paddingHorizontal: 3, position: 'absolute', right: -5, top: -5 },
+  headerBellBadgeText: { color: colors.white, fontSize: 8, fontWeight: '900' },
+  rolePill: { alignItems: 'center', backgroundColor: colors.gold, borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 10, paddingVertical: 8 },
+  rolePillText: { color: colors.navy, fontSize: 11, fontWeight: '900' },
+  body: { padding: 16, paddingBottom: 64 },
   label: { color: colors.inkSoft, fontSize: 13, fontWeight: '800', marginBottom: 6 },
   input: {
     backgroundColor: colors.white,
@@ -557,7 +724,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  row: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
   chips: { gap: 8, paddingVertical: 4, marginBottom: 12 },
   chip: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
   chipActive: { backgroundColor: colors.navy, borderColor: colors.navy },
@@ -570,6 +737,7 @@ const styles = StyleSheet.create({
   payChoiceActive: { backgroundColor: colors.navy, borderColor: colors.navy },
   payText: { color: colors.navy, fontWeight: '800' },
   payTextActive: { color: colors.white },
+  freeModeHint: { color: colors.success, fontSize: 12, fontWeight: '800', marginBottom: 12, marginTop: -4 },
   offer: { alignItems: 'center', backgroundColor: colors.cream, borderColor: colors.line, borderRadius: radius.md, borderWidth: 1, flexDirection: 'row', gap: 10, marginBottom: 10, padding: 12 },
   offerName: { color: colors.ink, fontSize: 15, fontWeight: '900' },
   offerMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },
@@ -585,8 +753,60 @@ const styles = StyleSheet.create({
   bubbleRole: { color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 3, textTransform: 'capitalize' },
   bubbleText: { color: colors.ink, fontSize: 14 },
   chatImage: { borderRadius: 10, height: 150, marginBottom: 6, width: 200 },
-  composer: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 12 },
+  composer: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, padding: 8, paddingBottom: 16 },
   imageBtn: { backgroundColor: colors.sand, borderColor: colors.line, borderRadius: 999, borderWidth: 1, padding: 10 },
   composerInput: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 999, borderWidth: 1, color: colors.ink, flex: 1, paddingHorizontal: 14, paddingVertical: 10 },
   sendBtn: { backgroundColor: colors.navy, borderRadius: 999, padding: 12 },
+  menuLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80 },
+  menuBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(3,18,32,.52)' },
+  menuPanel: {
+    backgroundColor: colors.sand,
+    borderBottomRightRadius: 28,
+    borderTopRightRadius: 28,
+    elevation: 9,
+    height: '100%',
+    maxWidth: 338,
+    padding: 18,
+    shadowColor: '#061f38',
+    shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    width: '84%',
+  },
+  menuHead: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', gap: 11, paddingBottom: 16 },
+  menuMark: { height: 42, width: 42 },
+  menuEyebrow: { color: colors.rust, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  menuName: { color: colors.navy, fontSize: 16, fontWeight: '900', marginTop: 2 },
+  menuClose: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 12, borderWidth: 1, height: 38, justifyContent: 'center', width: 38 },
+  menuSectionLabel: { color: colors.rust, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10, marginTop: 18 },
+  menuItems: { gap: 8 },
+  menuItem: { alignItems: 'center', backgroundColor: colors.white, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 11, minHeight: 62, paddingHorizontal: 10 },
+  menuItemActive: { backgroundColor: colors.navy, borderColor: colors.navy },
+  menuItemIcon: { alignItems: 'center', backgroundColor: colors.blueSoft, borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
+  menuItemIconActive: { backgroundColor: 'rgba(255,255,255,.14)' },
+  menuItemText: { color: colors.navy, fontSize: 14, fontWeight: '900' },
+  menuItemTextActive: { color: colors.white },
+  menuItemSub: { color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 },
+  menuItemSubActive: { color: '#b9cbe0' },
+  menuLogout: { alignItems: 'center', backgroundColor: '#fff1ef', borderColor: '#f0c8c1', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 14, minHeight: 48, paddingHorizontal: 14 },
+  menuLogoutText: { color: colors.rust, fontSize: 14, fontWeight: '900' },
+  menuFooter: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 'auto', paddingTop: 18 },
+  menuFooterMark: { height: 30, width: 30 },
+  menuFooterText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+  notificationLayer: { ...StyleSheet.absoluteFillObject, alignItems: 'stretch', backgroundColor: 'rgba(8,20,38,.38)', justifyContent: 'flex-start', paddingHorizontal: 10, paddingTop: 82, zIndex: 100 },
+  notificationPanel: { backgroundColor: '#fffefa', borderColor: colors.line, borderRadius: 28, borderWidth: 1, elevation: 18, maxHeight: '74%', padding: 14 },
+  notificationHead: { alignItems: 'center', backgroundColor: '#f6f0e8', borderRadius: 22, flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, padding: 12 },
+  notificationTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
+  notificationList: { gap: 9, paddingBottom: 6 },
+  notificationEmpty: { alignItems: 'center', gap: 8, paddingVertical: 24 },
+  notificationItem: { alignItems: 'flex-start', backgroundColor: colors.white, borderColor: '#f0ebe4', borderRadius: 20, borderWidth: 1, elevation: 1, flexDirection: 'row', gap: 12, overflow: 'hidden', padding: 13, paddingLeft: 15, position: 'relative', shadowColor: '#09223d', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  notificationItemUnread: { backgroundColor: '#fffdf8', borderColor: '#ead9bf', elevation: 3, shadowColor: '#7a431f', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } },
+  notificationAccent: { bottom: 0, left: 0, position: 'absolute', top: 0, width: 4 },
+  notificationIcon: { alignItems: 'center', backgroundColor: colors.navy, borderRadius: 16, height: 44, justifyContent: 'center', width: 44 },
+  notificationTopLine: { alignItems: 'center', flexDirection: 'row', gap: 7, marginBottom: 5 },
+  notificationUnreadDot: { borderRadius: 4, height: 8, width: 8 },
+  notificationItemLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' },
+  notificationItemTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
+  notificationItemBody: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  notificationItemMeta: { color: colors.rust, fontSize: 9, fontWeight: '900', letterSpacing: .7, marginTop: 6, textTransform: 'uppercase' },
 });

@@ -6,10 +6,14 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Admin\RejectDriverRequest;
 use App\Http\Requests\Admin\RequestDocumentRequest;
 use App\Http\Resources\DriverDocumentResource;
+use App\Models\DriverDocument;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\DriverVerificationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverVerificationController extends ApiController
 {
@@ -70,8 +74,56 @@ class DriverVerificationController extends ApiController
         return $this->ok($documentRequest, 'Document requested', 201);
     }
 
+    public function file(DriverDocument $document): StreamedResponse
+    {
+        $disk = $this->documentDisk($document);
+
+        abort_unless($disk, 404, 'Document file not found.');
+
+        $name = $document->original_name ?: basename($document->file_path);
+        $mime = Storage::disk($disk)->mimeType($document->file_path) ?: 'application/octet-stream';
+
+        return Storage::disk($disk)->response($document->file_path, $name, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="'.$name.'"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function reviewDocument(Request $request, DriverDocument $document)
+    {
+        $data = $request->validate([
+            'status' => ['required', Rule::in([
+                DriverDocument::STATUS_PENDING,
+                DriverDocument::STATUS_APPROVED,
+                DriverDocument::STATUS_REJECTED,
+            ])],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $document = $this->verification->reviewDocument(
+            $request->user(),
+            $document,
+            $data['status'],
+            $data['note'] ?? null
+        );
+
+        return $this->ok(new DriverDocumentResource($document), 'Document reviewed');
+    }
+
     private function assertDriver(User $driver): void
     {
         abort_unless($driver->isRole('driver'), 404, 'Driver not found.');
+    }
+
+    private function documentDisk(DriverDocument $document): ?string
+    {
+        foreach ([config('filesystems.default'), 'local', 'public'] as $disk) {
+            if ($disk && Storage::disk($disk)->exists($document->file_path)) {
+                return $disk;
+            }
+        }
+
+        return null;
     }
 }

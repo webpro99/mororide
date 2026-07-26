@@ -62,6 +62,7 @@ export type OrderOffer = {
       plate?: string | null;
       type?: string | null;
     } | null;
+    vehicle_photos?: Array<{ id: number; type: string; url: string }>;
   };
   created_at?: string;
 };
@@ -87,6 +88,24 @@ export type RideConversation = {
   order: Order;
   messages_count: number;
   last_message: ChatMessage | null;
+};
+
+export type FareEstimate = {
+  currency: string;
+  distance_km: number;
+  eta_min: number;
+  pax: number;
+  vehicle_type: string;
+  suggested_fare: number;
+  platform_fee: number;
+  driver_net_estimate: number;
+};
+
+export type PlatformMode = {
+  free_launch_enabled: boolean;
+  billing_state: 'off' | 'paid' | string;
+  title: string;
+  body: string;
 };
 
 export type DriverConversation = RideConversation;
@@ -173,6 +192,7 @@ export type CatalogDriver = {
   vehicle_type?: string | null;
   approval_state?: string | null;
   online_status: boolean;
+  vehicle_photos?: Array<{ id: number; type: string; url: string }>;
 };
 
 export type Catalog = {
@@ -237,8 +257,14 @@ export type DriverDocument = {
   status: string;
   file_path?: string;
   original_name?: string | null;
+  file_name?: string | null;
+  extension?: string | null;
+  is_image?: boolean;
+  is_pdf?: boolean;
+  driver_file_url?: string | null;
   note?: string | null;
   created_at?: string;
+  preview_url?: string | null;
 };
 
 export type DocChecklistItem = {
@@ -248,6 +274,7 @@ export type DocChecklistItem = {
 };
 
 export type DriverDocuments = {
+  approval_state: string;
   checklist: DocChecklistItem[];
   documents: DriverDocument[];
   has_all_required: boolean;
